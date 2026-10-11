@@ -196,58 +196,7 @@ class _NotesViewState extends State<NotesView> {
     if (created != null && mounted) _openNote(created);
   }
 
-  Future<void> _openNote(NoteFile note) async {
-    // Captured up front: the editor saves once more while it is being
-    // disposed, when the route's own context can no longer look it up.
-    final provider = context.read<NoteFileProvider>();
-    final messenger = ScaffoldMessenger.of(context);
-    final errorColor = Theme.of(context).colorScheme.error;
-
-    // Edit what is on disk, not the list's copy: it can be older.
-    final NoteFile? fresh;
-    try {
-      fresh = await provider.reloadNote(note.relativePath);
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(
-        content: Text('"${note.displayName}" could not be read (is it valid '
-            'UTF-8 text?). It was left untouched.'),
-        backgroundColor: errorColor,
-      ));
-      return;
-    }
-    if (fresh == null) {
-      messenger.showSnackBar(SnackBar(
-        content: Text('"${note.displayName}" no longer exists'),
-      ));
-      return;
-    }
-    if (!mounted) return;
-    final opened = fresh;
-
-    Future<void> save(String content, ExpectedContent expected) =>
-        provider.saveNoteFile(opened.relativePath, content,
-            expected: expected);
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        // Rebuilt with the note's latest known content, so the editor can
-        // reload after an external change.
-        builder: (context) => Selector<NoteFileProvider, String?>(
-          selector: (_, p) => p.noteByPath(opened.relativePath)?.content,
-          builder: (context, diskContent, _) => NoteEditor(
-            note: opened,
-            diskContent: diskContent,
-            onSave: save,
-            onAutoSave: save,
-            onSaveCopy: (content) => provider.saveConflictCopy(
-              folder: opened.folderPath,
-              baseName: opened.fileName,
-              content: content,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Future<void> _openNote(NoteFile note) => openNoteEditor(context, note);
 
   Future<void> _shareNote(NoteFile note) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -315,6 +264,61 @@ class _NotesViewState extends State<NotesView> {
       ),
     );
   }
+}
+
+/// Open [note] in the editor, from what is on disk. [context] must stay
+/// mounted while the note is read (a screen, not a dialog).
+Future<void> openNoteEditor(BuildContext context, NoteFile note) async {
+  // Captured up front: the editor saves once more while it is being
+  // disposed, when the route's own context can no longer look it up.
+  final provider = context.read<NoteFileProvider>();
+  final messenger = ScaffoldMessenger.of(context);
+  final errorColor = Theme.of(context).colorScheme.error;
+
+  // Edit what is on disk, not the list's copy: it can be older.
+  final NoteFile? fresh;
+  try {
+    fresh = await provider.reloadNote(note.relativePath);
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(
+      content: Text('"${note.displayName}" could not be read (is it valid '
+          'UTF-8 text?). It was left untouched.'),
+      backgroundColor: errorColor,
+    ));
+    return;
+  }
+  if (fresh == null) {
+    messenger.showSnackBar(SnackBar(
+      content: Text('"${note.displayName}" no longer exists'),
+    ));
+    return;
+  }
+  if (!context.mounted) return;
+  final opened = fresh;
+
+  Future<void> save(String content, ExpectedContent expected) =>
+      provider.saveNoteFile(opened.relativePath, content,
+          expected: expected);
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      // Rebuilt with the note's latest known content, so the editor can
+      // reload after an external change.
+      builder: (context) => Selector<NoteFileProvider, String?>(
+        selector: (_, p) => p.noteByPath(opened.relativePath)?.content,
+        builder: (context, diskContent, _) => NoteEditor(
+          note: opened,
+          diskContent: diskContent,
+          onSave: save,
+          onAutoSave: save,
+          onSaveCopy: (content) => provider.saveConflictCopy(
+            folder: opened.folderPath,
+            baseName: opened.fileName,
+            content: content,
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 /// A folder row in the notes list.

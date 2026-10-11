@@ -8,6 +8,7 @@ import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
+import 'package:planetxt/screens/search_screen.dart';
 import 'package:planetxt/services/shared_prefs_service.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
@@ -188,21 +189,38 @@ class _CalendarViewState extends State<CalendarView> {
                 child: const Text('Today'),
               ),
             IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const SearchScreen())),
+              icon: const Icon(Icons.search),
+              tooltip: 'Search days and notes',
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
               onPressed: () => _showQuickAddModal(context, dailyFileProvider),
               icon: const Icon(Icons.add),
               tooltip: 'Quick add event or todo',
             ),
             IconButton(
+              visualDensity: VisualDensity.compact,
               onPressed: () =>
                   _openDailyEditor(context, dailyFileProvider, dateString),
               icon: const Icon(Icons.edit),
               tooltip: 'Edit daily notes',
             ),
-            IconButton(
-              onPressed: () =>
-                  _showRefillDialog(context, dailyFileProvider, dateString),
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Refill undone todos to this day',
+            PopupMenuButton<VoidCallback>(
+              tooltip: 'More',
+              onSelected: (action) => action(),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: () =>
+                      _showRefillDialog(context, dailyFileProvider, dateString),
+                  child: const ListTile(
+                    leading: Icon(Icons.redo),
+                    title: Text('Carry over undone todos'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
