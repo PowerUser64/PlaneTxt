@@ -28,6 +28,9 @@ class NoteFileProvider extends ChangeNotifier {
 
   List<NoteFile> get noteFiles => List.unmodifiable(_noteFiles);
 
+  /// Conflict copies of notes found by the last scan, or written since.
+  Set<String> get conflictFiles => _noteRepository.conflictFiles;
+
   /// The loaded note at [relativePath], if any.
   NoteFile? noteByPath(String relativePath) {
     for (final note in _noteFiles) {
@@ -177,6 +180,7 @@ class NoteFileProvider extends ChangeNotifier {
       final relativePath = '$prefix$baseName (conflict $stamp$suffix).md';
       try {
         final copy = await _noteRepository.createNew(relativePath, content);
+        _noteRepository.addConflictFile(copy.path);
         _onNoteWritten(copy);
         Log.w('⚠️ NoteFileProvider: Saved conflicting version as $relativePath');
         return copy;

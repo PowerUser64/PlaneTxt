@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/conflict_files.dart';
 import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
 
@@ -95,6 +96,7 @@ abstract class BaseRepository<T> {
     }
 
     final entries = await store.list(scanDir, recursive: recursive);
+    _scanConflicts(entries);
 
     if (forceReload) {
       cache.clear();
@@ -155,6 +157,7 @@ abstract class BaseRepository<T> {
     }
 
     final entries = await store.list(scanDir, recursive: recursive);
+    _scanConflicts(entries);
     final modifiedEntries = <StoreEntry>[];
     final seenKeys = <String>{};
 
@@ -209,6 +212,24 @@ abstract class BaseRepository<T> {
   int get cacheSize => cache.length;
 
   // --- conflict detection ---------------------------------------------------
+
+  final Set<String> _conflictFiles = {};
+
+  /// Store paths of the conflict copies (see [isConflictCopy]) found by
+  /// the last scan: versions a sync tool kept aside, for the user to merge.
+  Set<String> get conflictFiles => Set.unmodifiable(_conflictFiles);
+
+  /// Record a conflict copy written since the last scan.
+  void addConflictFile(String relPath) => _conflictFiles.add(relPath);
+
+  void _scanConflicts(List<StoreEntry> entries) {
+    _conflictFiles
+      ..clear()
+      ..addAll(entries.map((e) => e.relPath).where(isConflictCopy));
+    if (_conflictFiles.isNotEmpty) {
+      Log.w('⚠️ $tag: ${_conflictFiles.length} conflict copies found');
+    }
+  }
 
   /// Last content this repository wrote or read per store path, with the
   /// file's mtime at that moment: lets [checkExpected] skip a read when the

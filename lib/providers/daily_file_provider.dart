@@ -51,6 +51,9 @@ class DailyFileProvider extends ChangeNotifier {
   }
 
   List<DailyFile> get dailyFiles => List.unmodifiable(_dailyFiles);
+
+  /// Conflict copies of daily files found by the last scan.
+  Set<String> get conflictFiles => _dailyRepository.conflictFiles;
   String get selectedDate => _selectedDate;
 
   // First full scan reads every daily file (slow on large folders and SAF

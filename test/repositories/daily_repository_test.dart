@@ -121,4 +121,19 @@ void main() {
       );
     });
   });
+
+  group('DailyRepository conflict copies', () {
+    test('a scan reports the copies Syncthing left aside', () async {
+      daily('20261011').writeAsStringSync('- [ ] mine');
+      File('${tempDir.path}/Org/dailies/'
+              '20261011.sync-conflict-20261011-153045-ABCDEFG.md')
+          .writeAsStringSync('- [ ] theirs');
+
+      final files = await repository.loadAll();
+
+      expect(files.map((f) => f.date), ['20261011']);
+      expect(repository.conflictFiles,
+          {'dailies/20261011.sync-conflict-20261011-153045-ABCDEFG.md'});
+    });
+  });
 }

@@ -29,6 +29,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   bool _storageBannerDismissed = false;
+  Set<String> _dismissedConflicts = {};
 
   final List<Widget> _screens = [
     const CalendarView(),
@@ -307,6 +308,73 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Sync tools keep a second copy when a file changed on two devices at
+  /// once; nothing else in the app would surface it.
+  Widget _buildConflictBanner(BuildContext context) {
+    final daily = context.watch<DailyFileProvider>();
+    final notes = context.watch<NoteFileProvider>();
+    final conflicts = {...daily.conflictFiles, ...notes.conflictFiles};
+    if (conflicts.isEmpty || conflicts.every(_dismissedConflicts.contains)) {
+      return const SizedBox.shrink();
+    }
+    final count = conflicts.length;
+    return MaterialBanner(
+      leading: Icon(Icons.call_split,
+          color: Theme.of(context).colorScheme.tertiary),
+      content: Text(count == 1
+          ? 'A file has two conflicting versions.'
+          : '$count files have two conflicting versions.'),
+      actions: [
+        TextButton(
+          onPressed: () => setState(() => _dismissedConflicts = conflicts),
+          child: const Text('Dismiss'),
+        ),
+        TextButton(
+          onPressed: () => _showConflicts(context, conflicts),
+          child: const Text('Details'),
+        ),
+      ],
+    );
+  }
+
+  void _showConflicts(BuildContext context, Set<String> conflicts) {
+    final sorted = conflicts.toList()..sort();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Conflicting versions'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Text(
+                  'These files changed in two places at once, so a sync app '
+                  '(or PlaneTxt) kept the second version as a copy. Compare '
+                  'each copy with its original, keep what you need, then '
+                  'delete the copy. Copies under notes/ open from the Notes '
+                  'tab.'),
+              const SizedBox(height: 12),
+              for (final path in sorted)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.description_outlined),
+                  title: Text(path),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Thin banner shown while the app reads every file to build its cache
   /// (first launch, or right after the storage folder changed). The full
   /// scan runs in the background; without this the app just looks slow.
@@ -355,6 +423,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       body: Column(
         children: [
           _buildStorageLostBanner(context),
+          _buildConflictBanner(context),
           _buildCacheBanner(context),
           Expanded(child: _screens[_currentIndex]),
         ],
