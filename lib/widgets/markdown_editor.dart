@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:planetxt/utils/logger.dart';
 
 enum EditorMode {
   embedded, // For use within other widgets (like DailyEditor)
@@ -40,13 +41,15 @@ class MarkdownEditor extends StatefulWidget {
   State<MarkdownEditor> createState() => MarkdownEditorState();
 }
 
-class MarkdownEditorState extends State<MarkdownEditor> {
+class MarkdownEditorState extends State<MarkdownEditor>
+    with WidgetsBindingObserver {
   late TextEditingController _controller;
   bool _hasChanges = false;
   Timer? _autoSaveTimer;
   String _savedContent = '';
   bool _autoSaveErrorShown = false;
   bool _saving = false;
+  Future<void> _lastWrite = Future.value();
 
   @override
   void initState() {
@@ -54,6 +57,33 @@ class MarkdownEditorState extends State<MarkdownEditor> {
     _savedContent = widget.initialContent;
     _controller = TextEditingController(text: widget.initialContent);
     _controller.addListener(_onTextChanged);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The OS may kill a backgrounded app before the debounce fires.
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _flushAutoSave();
+    }
+  }
+
+  /// Run the pending autosave now instead of waiting for the debounce.
+  void _flushAutoSave() {
+    if (_autoSaveTimer?.isActive ?? false) {
+      _autoSaveTimer!.cancel();
+      unawaited(_autoSave());
+    }
+  }
+
+  /// Run [save] once any write still in flight has finished: overlapping
+  /// writes of one file race on its temp file and can land out of order.
+  Future<void> _serialized(Future<void> Function() save) {
+    final next = _lastWrite.catchError((_) {}).then((_) => save());
+    _lastWrite = next;
+    return next;
   }
 
   void _onTextChanged() {
@@ -72,7 +102,7 @@ class MarkdownEditorState extends State<MarkdownEditor> {
     if (widget.onAutoSave == null || !_hasChanges) return;
     final content = _controller.text;
     try {
-      await widget.onAutoSave!(content);
+      await _serialized(() => widget.onAutoSave!(content));
     } catch (e) {
       // Keep _hasChanges true so the Save button stays visible and the
       // content isn't considered persisted.
@@ -98,14 +128,19 @@ class MarkdownEditorState extends State<MarkdownEditor> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autoSaveTimer?.cancel();
+    final onAutoSave = widget.onAutoSave;
+    final content = _controller.text;
+    if (onAutoSave != null && content != _savedContent) {
+      // Leaving right after typing (back gesture, app switch): the debounced
+      // autosave will never run, so persist the last keystrokes now.
+      unawaited(_serialized(() => onAutoSave(content)).catchError((Object e) {
+        Log.e('❌ MarkdownEditor: Save on close failed', error: e);
+      }));
+    }
     _controller.dispose();
     super.dispose();
-  }
-
-  void saveBeforeSwitch() {
-    _autoSaveTimer?.cancel();
-    unawaited(_autoSave());
   }
 
   @override
@@ -253,7 +288,7 @@ class MarkdownEditorState extends State<MarkdownEditor> {
     _saving = true;
     final content = _controller.text;
     try {
-      await widget.onSave(content);
+      await _serialized(() => widget.onSave(content));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

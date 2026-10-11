@@ -38,10 +38,6 @@ class DailyEditorFullscreenState extends State<DailyEditorFullscreen> {
     );
   }
 
-  void saveBeforeSwitch() {
-    // This will be handled by the parent widget
-  }
-
   String _formatDate(String dateString) {
     if (dateString.length == 8) {
       final year = dateString.substring(0, 4);

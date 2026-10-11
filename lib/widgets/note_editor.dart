@@ -36,8 +36,4 @@ class NoteEditorState extends State<NoteEditor> {
       saveSuccessMessage: 'Note saved',
     );
   }
-
-  void saveBeforeSwitch() {
-    // This will be handled by the parent widget
-  }
 }
