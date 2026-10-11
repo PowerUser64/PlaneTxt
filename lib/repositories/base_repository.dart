@@ -119,7 +119,6 @@ abstract class BaseRepository<T> {
         cachedItems.add(cached);
       } else {
         entriesToLoad.add(entry);
-        if (currentMod != null) lastModified[key] = currentMod;
       }
     }
 
@@ -130,10 +129,7 @@ abstract class BaseRepository<T> {
 
     final loadedItems =
         await _loadEntriesParallel(entriesToLoad, onProgress: onProgress);
-
-    for (final item in loadedItems) {
-      cache[fileKey(item)] = item;
-    }
+    _storeLoaded(entriesToLoad, loadedItems);
 
     final allItems = [...cachedItems, ...loadedItems]..sort(compare);
 
@@ -171,7 +167,6 @@ abstract class BaseRepository<T> {
           lastModified[key] == null ||
           lastModified[key]!.isBefore(currentMod)) {
         modifiedEntries.add(entry);
-        if (currentMod != null) lastModified[key] = currentMod;
       }
     }
 
@@ -179,10 +174,7 @@ abstract class BaseRepository<T> {
     lastModified.removeWhere((k, _) => !seenKeys.contains(k));
 
     final loadedItems = await _loadEntriesParallel(modifiedEntries);
-
-    for (final item in loadedItems) {
-      cache[fileKey(item)] = item;
-    }
+    _storeLoaded(modifiedEntries, loadedItems);
 
     final allItems = cache.values.toList()..sort(compare);
 
@@ -218,6 +210,25 @@ abstract class BaseRepository<T> {
     cache.clear();
     lastModified.clear();
     Log.d('$tag: Cache cleared');
+  }
+
+  /// Cache [loaded] items with the mtime they were listed with. Only files
+  /// that were actually read get their mtime recorded: one that failed
+  /// (unreadable, vanished) must be retried on the next scan, not treated
+  /// as up to date.
+  void _storeLoaded(List<StoreEntry> entries, List<T> loaded) {
+    final modByKey = <String, DateTime>{};
+    for (final entry in entries) {
+      final key = matchEntry(entry);
+      final mod = entry.modified;
+      if (key != null && mod != null) modByKey[key] = mod;
+    }
+    for (final item in loaded) {
+      final key = fileKey(item);
+      cache[key] = item;
+      final mod = modByKey[key];
+      if (mod != null) lastModified[key] = mod;
+    }
   }
 
   // --- parallel loading -----------------------------------------------------

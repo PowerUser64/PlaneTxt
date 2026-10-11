@@ -13,6 +13,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.BufferedReader
 import java.io.FileNotFoundException
 import java.io.InputStreamReader
+import java.nio.charset.CodingErrorAction
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
@@ -228,13 +229,23 @@ class SafFileStoreHandler(private val activity: Activity) {
     private fun readFile(treeUri: Uri, relPath: String): String? {
         val docUri = resolveFileUri(treeUri, relPath) ?: return null
         return try {
-            activity.contentResolver.openInputStream(docUri)?.use { input ->
-                BufferedReader(InputStreamReader(input)).readText()
-            }
+            readText(docUri)
         } catch (e: FileNotFoundException) {
             null
         }
     }
+
+    /**
+     * Strict UTF-8 decode: malformed bytes throw instead of turning into
+     * U+FFFD, which the next save would write back - silently and for good.
+     */
+    private fun readText(docUri: Uri): String? =
+        activity.contentResolver.openInputStream(docUri)?.use { input ->
+            val decoder = Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+            BufferedReader(InputStreamReader(input, decoder)).readText()
+        }
 
     /**
      * Bulk read: resolves each directory once (a single children query maps
@@ -260,10 +271,7 @@ class SafFileStoreHandler(private val activity: Activity) {
             for (path in paths) {
                 val docId = nameToDocId[splitParent(path).second]
                 out[path] = if (docId == null) null else try {
-                    val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                    activity.contentResolver.openInputStream(docUri)?.use { input ->
-                        BufferedReader(InputStreamReader(input)).readText()
-                    }
+                    readText(DocumentsContract.buildDocumentUriUsingTree(treeUri, docId))
                 } catch (e: FileNotFoundException) {
                     null
                 }

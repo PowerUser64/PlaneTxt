@@ -11,6 +11,8 @@
 ///    persisted URI grant, with no storage permission.
 library;
 
+import 'package:planetxt/utils/exceptions.dart';
+
 /// A file inside a [FileStore], as returned by [FileStore.list].
 class StoreEntry {
   /// Path relative to the store root, `/`-separated (e.g. `notes/a/b.md`).
@@ -43,11 +45,14 @@ abstract class FileStore {
     bool recursive = false,
   });
 
-  /// File content, or `null` when the file does not exist.
+  /// File content, or `null` when the file does not exist. Throws
+  /// [FileOperationException] when the file exists but cannot be read (e.g.
+  /// not valid UTF-8): callers must never mistake that for a missing file.
   Future<String?> read(String relPath);
 
   /// Contents of several files in one pass, keyed by the input paths.
-  /// Missing files map to `null`. Backends override this when bulk access
+  /// Missing files map to `null`; throws if any existing file cannot be
+  /// read (see [read]). Backends override this when bulk access
   /// is much cheaper than per-file reads (SAF: one directory query serves
   /// every file in that directory).
   Future<Map<String, String?>> readAll(List<String> relPaths) async {

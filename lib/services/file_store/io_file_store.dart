@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:planetxt/services/file_store/file_store.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
 
 /// [FileStore] over a plain filesystem directory (dart:io).
@@ -56,12 +57,21 @@ class IoFileStore extends FileStore {
   @override
   Future<String?> read(String relPath) async {
     final file = File(_abs(relPath));
+    if (!await file.exists()) return null;
     try {
-      if (!await file.exists()) return null;
       return await file.readAsString();
+    } on PathNotFoundException {
+      return null; // deleted between exists() and the read
     } catch (e) {
+      // Not "missing": a caller treating it as absent would start from an
+      // empty template and overwrite the real file on its first save.
       Log.e('❌ IoFileStore: Error reading $relPath', error: e);
-      return null;
+      throw FileOperationException(
+        'Cannot read $relPath',
+        filePath: relPath,
+        details: e is FileSystemException ? e.message : '$e',
+        originalError: e,
+      );
     }
   }
 

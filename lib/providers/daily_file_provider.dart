@@ -188,11 +188,16 @@ class DailyFileProvider extends ChangeNotifier {
         notifyListeners();
       }
 
-      // Stage B: refresh today from disk so it's never stale.
+      // Stage B: refresh today from disk so it's never stale. An unreadable
+      // file must not abort startup; opening it reports the error.
       final todayDate = getTodayDate();
-      final todayFile = await _dailyRepository.loadByDate(todayDate);
-      if (todayFile != null) {
-        _upsertFile(todayFile);
+      try {
+        final todayFile = await _dailyRepository.loadByDate(todayDate);
+        if (todayFile != null) {
+          _upsertFile(todayFile);
+        }
+      } catch (e) {
+        Log.e('❌ DailyFileProvider: Cannot read today\'s file', error: e);
       }
 
       // Notify the UI first; the home-screen widget update (disk read +

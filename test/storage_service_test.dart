@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:planetxt/services/file_store/file_store.dart';
 import 'package:planetxt/services/file_store/io_file_store.dart';
+import 'package:planetxt/utils/exceptions.dart';
 
 void main() {
   late Directory tempDir;
@@ -55,6 +56,15 @@ void main() {
     test('round-trips written content', () async {
       await store.write('roundtrip.md', 'contenu accentué é à ü');
       expect(await store.read('roundtrip.md'), 'contenu accentué é à ü');
+    });
+
+    test('throws instead of returning null for an unreadable file', () async {
+      // Latin-1 "é": not valid UTF-8.
+      File('${tempDir.path}/latin1.md').writeAsBytesSync([0x63, 0x61, 0xE9]);
+      await expectLater(
+        store.read('latin1.md'),
+        throwsA(isA<FileOperationException>()),
+      );
     });
   });
 

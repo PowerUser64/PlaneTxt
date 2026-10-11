@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:planetxt/services/file_store/file_store.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
 
 /// [FileStore] over an Android Storage Access Framework document tree.
@@ -86,10 +87,21 @@ class SafFileStore extends FileStore {
   }
 
   @override
-  Future<String?> read(String relPath) => _invoke<String>('readFile', {
+  Future<String?> read(String relPath) async {
+    try {
+      return await _invoke<String>('readFile', {
         'treeUri': treeUri,
         'relPath': normalizeRelPath(relPath),
       });
+    } on PlatformException catch (e) {
+      throw FileOperationException(
+        'Cannot read $relPath',
+        filePath: relPath,
+        details: e.message,
+        originalError: e,
+      );
+    }
+  }
 
   /// One channel call for the whole batch: the Kotlin side resolves each
   /// directory once (a single children query gives every file's document

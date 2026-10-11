@@ -5,6 +5,7 @@ import 'package:planetxt/models/daily_file.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/utils/daily_content_helper.dart';
+import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/widgets/calendar_day_widget.dart';
 import 'package:planetxt/widgets/daily_content_view.dart';
 import 'package:planetxt/widgets/daily_editor_fullscreen.dart';
@@ -148,9 +149,25 @@ class _CalendarViewState extends State<CalendarView> {
     final dateString = _formatDate(day);
     final provider = context.read<DailyFileProvider>();
     provider.setSelectedDate(dateString);
-    // Revalidate the selected day against disk — the startup fast path only
+    // Revalidate the selected day against disk - the startup fast path only
     // refreshes today, so another date may still show stale cached content.
-    unawaited(provider.ensureDailyFileLoaded(dateString));
+    unawaited(provider.ensureDailyFileLoaded(dateString).catchError((Object e) {
+      Log.e('❌ CalendarView: Cannot read daily file $dateString', error: e);
+      return null;
+    }));
+  }
+
+  /// The day's file exists but could not be read: say so, and never fall
+  /// back to the template - its first save would overwrite the real file.
+  void _showReadError(BuildContext context, Object error) {
+    Log.e('❌ CalendarView: Cannot read daily file', error: error);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text("This day's file could not be read (is it valid "
+            'UTF-8 text?). It was left untouched.'),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
+    );
   }
 
   void _showQuickAddModal(
@@ -159,7 +176,13 @@ class _CalendarViewState extends State<CalendarView> {
 
     final dateString = _formatDate(_selectedDay!);
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    final dailyFile = await dailyFileProvider.ensureDailyFileLoaded(dateString);
+    final DailyFile? dailyFile;
+    try {
+      dailyFile = await dailyFileProvider.ensureDailyFileLoaded(dateString);
+    } catch (e) {
+      if (context.mounted) _showReadError(context, e);
+      return;
+    }
     final currentContent = dailyFile?.content ?? themeProvider.dailyTemplate;
 
     if (!context.mounted) return;
@@ -192,7 +215,13 @@ class _CalendarViewState extends State<CalendarView> {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     // Re-read from disk before editing: opening the editor from a stale
     // cache and autosaving would overwrite newer file content.
-    final fresh = await dailyFileProvider.ensureDailyFileLoaded(dateString);
+    final DailyFile? fresh;
+    try {
+      fresh = await dailyFileProvider.ensureDailyFileLoaded(dateString);
+    } catch (e) {
+      if (context.mounted) _showReadError(context, e);
+      return;
+    }
     final initialContent = fresh?.content ?? themeProvider.dailyTemplate;
 
     if (!context.mounted) return;

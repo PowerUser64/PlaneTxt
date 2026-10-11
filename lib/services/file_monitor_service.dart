@@ -233,7 +233,15 @@ class FileMonitorService {
 
         final date = dateMatch.group(1)!;
         if (date.compareTo(today) < 0) continue;
-        final content = await store.read(entry.relPath) ?? '';
+        final String content;
+        try {
+          content = await store.read(entry.relPath) ?? '';
+        } catch (e) {
+          // One unreadable file must not stop the other days' reminders.
+          Log.e('❌ FileMonitorService: Cannot read ${entry.relPath}',
+              error: e);
+          continue;
+        }
 
         if (content.isNotEmpty) {
           await _scheduleNotificationsForDate(date, content);
