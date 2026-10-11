@@ -113,13 +113,13 @@ class DailyRepository extends BaseRepository<DailyFile> {
     try {
       final store = storageService.store!;
       if (expected != null) await checkExpected(dailyFile.path, expected);
+      forgetDisk(dailyFile.path);
       await store.write(dailyFile.path, dailyFile.content);
       cache[dailyFile.date] = dailyFile;
       // Record the new mtime so loadByDate doesn't re-read our own write.
       try {
         final mtime = await store.modified(dailyFile.path);
         if (mtime != null) lastModified[dailyFile.date] = mtime;
-        rememberDisk(dailyFile.path, mtime, dailyFile.content);
       } catch (_) {}
       Log.d('📅 DailyRepository: Saved daily file for ${dailyFile.date}');
     } catch (e) {

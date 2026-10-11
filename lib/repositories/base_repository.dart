@@ -231,29 +231,43 @@ abstract class BaseRepository<T> {
     }
   }
 
-  /// Last content this repository wrote or read per store path, with the
-  /// file's mtime at that moment: lets [checkExpected] skip a read when the
-  /// file has not been touched since.
-  final Map<String, (DateTime, String)> _knownDisk = {};
+  /// Two writes closer than this can share an mtime (FAT and exFAT round
+  /// to 2 s), so an mtime alone can't tell them apart.
+  static const Duration mtimePrecision = Duration(seconds: 2);
 
-  /// Record that [relPath] held [content] with modification time [mtime].
+  /// Last content this repository read per store path, with the file's
+  /// mtime and when it was read: lets [checkExpected] skip a read when the
+  /// file has not been touched since.
+  final Map<String, (DateTime, DateTime, String)> _knownDisk = {};
+
+  /// Record that a read of [relPath] returned [content] while the file had
+  /// modification time [mtime].
   void rememberDisk(String relPath, DateTime? mtime, String content) {
     if (mtime == null) {
       _knownDisk.remove(relPath);
     } else {
-      _knownDisk[relPath] = (mtime, content);
+      _knownDisk[relPath] = (mtime, DateTime.now(), content);
     }
   }
 
+  /// Drop what is known of [relPath], after writing it: another write in
+  /// the same mtime tick would go unnoticed, so the next check reads it.
+  void forgetDisk(String relPath) => _knownDisk.remove(relPath);
+
   /// Throw [FileConflictException] unless [relPath] still holds what the
   /// caller expects. Compares content, not mtimes alone: sync tools keep
-  /// the source mtime, which can be older than our last write.
+  /// the source mtime, which can be older than our last write. The known
+  /// content stands in for a read only if it was read once the file's
+  /// mtime tick was over (the "racy timestamp" check git does).
   Future<void> checkExpected(String relPath, ExpectedContent expected) async {
     final store = storageService.store!;
     final mtime = await store.modified(relPath);
     final known = _knownDisk[relPath];
-    final onDisk = (mtime != null && known != null && known.$1 == mtime)
-        ? known.$2
+    final onDisk = (mtime != null &&
+            known != null &&
+            known.$1 == mtime &&
+            known.$2.difference(mtime) >= mtimePrecision)
+        ? known.$3
         : await store.read(relPath);
     if (onDisk != expected.content) {
       Log.w('⚠️ $tag: $relPath changed on disk since it was read');

@@ -75,6 +75,20 @@ void main() {
       );
       expect(noteFile('Plan.md').readAsStringSync(), 'edited elsewhere');
     });
+
+    test('a change in the same mtime tick as our write is caught', () async {
+      await repository.create('Plan.md', 'v1');
+      final ourWrite = noteFile('Plan.md').lastModifiedSync();
+      noteFile('Plan.md')
+        ..writeAsStringSync('same tick')
+        ..setLastModifiedSync(ourWrite);
+
+      await expectLater(
+        repository.create('Plan.md', 'mine',
+            expected: const ExpectedContent('v1')),
+        throwsA(isA<FileConflictException>()),
+      );
+    });
   });
   group('NoteRepository archives', () {
     File archived(String relPath) =>

@@ -105,13 +105,13 @@ class NoteRepository extends BaseRepository<NoteFile> {
     try {
       final store = storageService.store!;
       if (expected != null) await checkExpected(noteFile.path, expected);
+      forgetDisk(noteFile.path);
       await store.write(noteFile.path, noteFile.content);
       cache[noteFile.relativePath] =
           noteFile.copyWith(lastModified: DateTime.now());
       try {
         final mtime = await store.modified(noteFile.path);
         if (mtime != null) lastModified[noteFile.relativePath] = mtime;
-        rememberDisk(noteFile.path, mtime, noteFile.content);
       } catch (_) {}
       Log.d('📝 NoteRepository: Saved note file ${noteFile.relativePath}');
     } catch (e) {

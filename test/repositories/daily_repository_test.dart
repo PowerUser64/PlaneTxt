@@ -101,6 +101,20 @@ void main() {
       );
     });
 
+    test('detects a change landing in the same mtime tick as our write',
+        () async {
+      await repository.save(file('v1'), expected: const ExpectedContent(null));
+      final ourWrite = daily('20261011').lastModifiedSync();
+      daily('20261011')
+        ..writeAsStringSync('same tick')
+        ..setLastModifiedSync(ourWrite);
+
+      await expectLater(
+        repository.save(file('mine'), expected: const ExpectedContent('v1')),
+        throwsA(isA<FileConflictException>()),
+      );
+    });
+
     test('refuses to create over a file that appeared meanwhile', () async {
       daily('20261011').writeAsStringSync('created elsewhere');
 
