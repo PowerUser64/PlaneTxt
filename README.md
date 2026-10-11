@@ -21,10 +21,11 @@ PlaneTxt (formerly Planova) is the successor of MOrg: it replaces the calendar.t
 
 - **Calendar view**: a month calendar with the events and tasks of the selected day below it. Days with content show colored markers.
 - **Daily files**: each day is a Markdown file with Events, Todos, Logs and Notes sections. The template is configurable.
-- **Todos**: tap a todo to check or uncheck it. Each morning PlaneTxt offers to carry over the todos left undone the day before; Refill moves or copies unfinished todos from any previous day.
+- **Todos**: tap a todo to check or uncheck it. Each morning PlaneTxt offers to carry over the todos left undone on the last day that has some; you can also move or copy unfinished todos from any previous day.
 - **Events**: `- @09:30 Team standup` becomes a timed event, with a reminder before it starts: one hour by default, adjustable or off in Settings. Tapping the reminder opens its day. On Linux, reminders only fire while PlaneTxt is running.
 - **Quick add**: add an event, a todo or a log to a day without opening the editor.
 - **Search**: find any day or note from the calendar, ignoring case and accents.
+- **Week review**: what got done, what is still open, what keeps being carried over, and the week's events.
 - **Notes**: a searchable list of notes grouped in folders you can fold, with share, archive, rename and delete.
 - **Markdown editor**: formatting toolbar, auto-indent and todo handling.
 - **ICS import**: share an .ics file to PlaneTxt to merge its events into the right days. Importing the same file twice adds nothing. Any other shared text can be added to today as a todo, an event or a log, or saved as a new note.
@@ -108,6 +109,8 @@ Done:
 - [x] ICS import through the Android share sheet
 - [x] Shared text added to today as a todo, an event or a log, or saved as a note
 - [x] Notes grouped in folders that fold and unfold
+- [x] Weekly review screen
+- [x] Search across days and notes
 - [x] Share a note, archive a note to `archives/`
 - [x] Custom storage folder through the system picker, no storage permission
 - [x] Linux desktop build
@@ -116,7 +119,6 @@ Done:
 Next:
 
 - [ ] F-Droid and IzzyOnDroid listings
-- [ ] Weekly review screen
 - [ ] Desktop layout for wide screens
 
 ## Contributing

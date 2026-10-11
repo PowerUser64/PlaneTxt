@@ -9,6 +9,7 @@ import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/screens/search_screen.dart';
+import 'package:planetxt/screens/week_review_screen.dart';
 import 'package:planetxt/services/shared_prefs_service.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
@@ -218,6 +219,14 @@ class _CalendarViewState extends State<CalendarView> {
                   child: const ListTile(
                     leading: Icon(Icons.redo),
                     title: Text('Carry over undone todos'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => WeekReviewScreen(day: _selectedDay!))),
+                  child: const ListTile(
+                    leading: Icon(Icons.view_week_outlined),
+                    title: Text('Week review'),
                   ),
                 ),
               ],
