@@ -28,6 +28,13 @@ class MarkdownParser {
   /// Matches a non-task bullet line (used by parseNotes).
   static final RegExp _bulletLine = RegExp(r'^\s*[-*+]\s+');
 
+  static final RegExp _lineBreak = RegExp(r'\r?\n');
+
+  /// Split [content] into lines, accepting CRLF as well as LF: files edited
+  /// on Windows keep a trailing `\r` on every line otherwise, and none of
+  /// the `...$` patterns above would match.
+  static List<String> splitLines(String content) => content.split(_lineBreak);
+
   /// True if [line] is a markdown todo (checked or unchecked).
   static bool isTodoLine(String line) => todoLine.hasMatch(line);
 
@@ -37,7 +44,7 @@ class MarkdownParser {
   /// Parse tasks from markdown content.
   static List<TaskItem> parseTasks(String content) {
     final tasks = <TaskItem>[];
-    for (final line in content.split('\n')) {
+    for (final line in splitLines(content)) {
       final m = _todoLineWithText.firstMatch(line);
       if (m == null) continue;
       tasks.add(TaskItem(
@@ -52,7 +59,7 @@ class MarkdownParser {
   /// an event, or a header. Bullet markers are stripped.
   static List<String> parseNotes(String content) {
     final notes = <String>[];
-    for (final line in content.split('\n')) {
+    for (final line in splitLines(content)) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
       if (headerLine.hasMatch(trimmed)) continue;
@@ -74,7 +81,7 @@ class MarkdownParser {
   /// `@9:00` mention inside a note or description is ignored.
   static List<CalendarEvent> parseEvents(String date, String content) {
     final events = <CalendarEvent>[];
-    final lines = content.split('\n');
+    final lines = splitLines(content);
 
     int year, month, day;
     try {

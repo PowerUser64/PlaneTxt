@@ -56,6 +56,17 @@ class DailyContentHelper {
     return _SectionRange(headerIndex, end);
   }
 
+  /// Run [edit] on [content] with LF line endings, then restore CRLF if the
+  /// file used it, so an insertion never leaves a file with mixed endings.
+  static String _keepingLineEndings(
+    String content,
+    String Function(String lfContent) edit,
+  ) {
+    if (!content.contains('\r\n')) return edit(content);
+    final result = edit(content.replaceAll('\r\n', '\n'));
+    return result.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n');
+  }
+
   static bool _isEventLine(String line) => MarkdownParser.isEventLine(line);
   static bool _isTodoLine(String line) => MarkdownParser.isTodoLine(line);
 
@@ -64,6 +75,14 @@ class DailyContentHelper {
   /// Inserts content after the first header matching [headerRegex].
   /// If no matching header is found, appends the content to the end.
   static String insertAfterHeader(
+    String content,
+    String newContent,
+    String headerRegex,
+  ) =>
+      _keepingLineEndings(
+          content, (c) => _insertAfterHeader(c, newContent, headerRegex));
+
+  static String _insertAfterHeader(
     String content,
     String newContent,
     String headerRegex,
@@ -109,6 +128,14 @@ class DailyContentHelper {
   /// the section at the end of the file if needed. Existing duplicate events
   /// (same time + title) are preserved; new ones are merged in.
   static String insertEventsChronologically(
+    String content,
+    List<String> eventLines,
+    String eventHeaderRegex,
+  ) =>
+      _keepingLineEndings(content,
+          (c) => _insertEventsChronologically(c, eventLines, eventHeaderRegex));
+
+  static String _insertEventsChronologically(
     String content,
     List<String> eventLines,
     String eventHeaderRegex,
@@ -179,6 +206,14 @@ class DailyContentHelper {
     String content,
     String eventContent,
     String eventHeaderRegex,
+  ) =>
+      _keepingLineEndings(content,
+          (c) => _insertAfterLastEvent(c, eventContent, eventHeaderRegex));
+
+  static String _insertAfterLastEvent(
+    String content,
+    String eventContent,
+    String eventHeaderRegex,
   ) {
     if (eventHeaderRegex.isEmpty) return _appendAtEnd(content, eventContent);
 
@@ -206,6 +241,14 @@ class DailyContentHelper {
   /// If the section exists but is empty, inserts right after the header
   /// with a blank-line separator. If the section doesn't exist, appends.
   static String insertAfterLastTodo(
+    String content,
+    String todoContent,
+    String todoHeaderRegex,
+  ) =>
+      _keepingLineEndings(content,
+          (c) => _insertAfterLastTodo(c, todoContent, todoHeaderRegex));
+
+  static String _insertAfterLastTodo(
     String content,
     String todoContent,
     String todoHeaderRegex,
@@ -267,6 +310,14 @@ class DailyContentHelper {
   /// Inserts content at the end of a section (just before the next `#`
   /// header). If no matching section exists, appends to the end of the file.
   static String insertAtEndOfSection(
+    String content,
+    String newContent,
+    String sectionHeaderRegex,
+  ) =>
+      _keepingLineEndings(content,
+          (c) => _insertAtEndOfSection(c, newContent, sectionHeaderRegex));
+
+  static String _insertAtEndOfSection(
     String content,
     String newContent,
     String sectionHeaderRegex,

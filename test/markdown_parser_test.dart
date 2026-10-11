@@ -118,4 +118,28 @@ free text line
       expect(MarkdownParser.isEventLine('@10:00 x'), isFalse);
     });
   });
+
+  group('CRLF line endings', () {
+    const crlf = '# Todos\r\n- [ ] buy milk\r\n- [x] call mom\r\n'
+        '# Events\r\n- @09:30 Standup\r\n  room 4\r\n';
+
+    test('parses tasks from a file edited on Windows', () {
+      final tasks = MarkdownParser.parseTasks(crlf);
+      expect(tasks.map((t) => t.text), ['buy milk', 'call mom']);
+      expect(tasks.map((t) => t.isCompleted), [false, true]);
+    });
+
+    test('parses events and their descriptions', () {
+      final events = MarkdownParser.parseEvents('20261011', crlf);
+      expect(events.single.title, 'Standup');
+      expect(events.single.time, DateTime(2026, 10, 11, 9, 30));
+      expect(events.single.description, 'room 4');
+    });
+
+    test('keeps tasks and events out of the notes', () {
+      final notes = MarkdownParser.parseNotes(crlf);
+      expect(notes.where((n) => n.contains('milk') || n.contains('Standup')),
+          isEmpty);
+    });
+  });
 }

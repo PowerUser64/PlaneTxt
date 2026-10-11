@@ -121,4 +121,35 @@ note''';
       expect(result.contains('new'), isTrue);
     });
   });
+
+  group('CRLF line endings', () {
+    const crlf = '## Tasks\r\n- [ ] first\r\n\r\n## Events\r\n'
+        '- @10:00 Late\r\n\r\n## Notes\r\nsomething\r\n';
+
+    void expectOnlyCrlf(String result) {
+      expect(result.replaceAll('\r\n', '').contains('\n'), isFalse,
+          reason: 'mixed line endings in:\n$result');
+    }
+
+    test('inserts a todo without mixing line endings', () {
+      final result = DailyContentHelper.insertAfterLastTodo(
+          crlf, '- [ ] second', todoHeader);
+      expect(result, contains('- [ ] first\r\n- [ ] second\r\n'));
+      expectOnlyCrlf(result);
+    });
+
+    test('finds the events section and keeps chronological order', () {
+      final result = DailyContentHelper.insertEventsChronologically(
+          crlf, ['- @08:00 Early'], eventHeader);
+      expect(result, contains('## Events\r\n'));
+      expect(result.indexOf('Early'), lessThan(result.indexOf('Late')));
+      expectOnlyCrlf(result);
+    });
+
+    test('leaves LF files untouched', () {
+      final result = DailyContentHelper.insertAfterLastTodo(
+          '## Tasks\n- [ ] first', '- [ ] second', todoHeader);
+      expect(result, '## Tasks\n- [ ] first\n- [ ] second');
+    });
+  });
 }
