@@ -425,7 +425,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _buildStorageLostBanner(context),
           _buildConflictBanner(context),
           _buildCacheBanner(context),
-          Expanded(child: _screens[_currentIndex]),
+          // Every tab stays alive: switching back keeps the selected day,
+          // the notes search and the scroll positions.
+          Expanded(
+            child: IndexedStack(index: _currentIndex, children: _screens),
+          ),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(

@@ -61,4 +61,42 @@ void main() {
     expect(tester.takeException(), isNull);
     expect((tester.widget(shown.first) as Text).data, before);
   });
+  testWidgets('a swipe on the day moves to the next or previous day',
+      (tester) async {
+    provider.setSelectedDate('20271015');
+    await tester.pumpWidget(calendar());
+    await tester.pumpAndSettle();
+
+    await tester.fling(find.text('Fri 15 Oct'), const Offset(-300, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(provider.selectedDate, '20271016');
+
+    await tester.fling(find.text('Sat 16 Oct'), const Offset(300, 0), 1000);
+    await tester.pumpAndSettle();
+    await tester.fling(find.text('Fri 15 Oct'), const Offset(300, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(provider.selectedDate, '20271014');
+  });
+
+  testWidgets('Today brings the calendar back to today', (tester) async {
+    provider.setSelectedDate('20271015');
+    await tester.pumpWidget(calendar());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Today'));
+    await tester.pumpAndSettle();
+
+    final now = DateTime.now();
+    expect(provider.selectedDate,
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}');
+    expect(find.text('Today'), findsNothing);
+  });
+
+  testWidgets('an empty day offers to start it', (tester) async {
+    await tester.pumpWidget(calendar());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Nothing planned yet today'), findsOneWidget);
+    expect(find.text('Start the day'), findsOneWidget);
+  });
 }

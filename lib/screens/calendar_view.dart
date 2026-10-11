@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:planetxt/models/daily_file.dart';
 import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
@@ -76,15 +77,7 @@ class _CalendarViewState extends State<CalendarView> {
                 lastDay: _lastDay,
                 focusedDay: _focusedDay,
                 selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                onDaySelected: (selectedDay, focusedDay) {
-                  if (!isSameDay(_selectedDay, selectedDay)) {
-                    setState(() {
-                      _selectedDay = selectedDay;
-                      _focusedDay = focusedDay;
-                    });
-                    _loadDailyContent(selectedDay);
-                  }
-                },
+                onDaySelected: (selectedDay, _) => _selectDay(selectedDay),
                 onPageChanged: (focusedDay) => _focusedDay = focusedDay,
                 eventLoader: (day) => [],
                 calendarFormat: CalendarFormat.month,
@@ -116,16 +109,20 @@ class _CalendarViewState extends State<CalendarView> {
               ),
             ),
             Expanded(
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: _selectedDay != null
-                    ? SingleChildScrollView(
-                        padding: EdgeInsets.only(
-                          bottom: MediaQuery.of(context).viewInsets.bottom,
-                        ),
-                        child: _buildDailyContent(dailyFileProvider),
-                      )
-                    : const Center(child: Text('Select a day to view content')),
+              // Swipe the day's content to move to the next or previous
+              // day; the calendar above swipes by month.
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragEnd: _onDaySwipe,
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(context).viewInsets.bottom,
+                    ),
+                    child: _buildDailyContent(dailyFileProvider),
+                  ),
+                ),
               ),
             ),
           ],
@@ -134,16 +131,51 @@ class _CalendarViewState extends State<CalendarView> {
     );
   }
 
+  /// Select [day] in the calendar and show its content.
+  void _selectDay(DateTime day) {
+    if (isSameDay(_selectedDay, day) ||
+        day.isBefore(_firstDay) ||
+        day.isAfter(_lastDay)) {
+      return;
+    }
+    setState(() {
+      _selectedDay = day;
+      _focusedDay = day;
+    });
+    _loadDailyContent(day);
+  }
+
+  void _onDaySwipe(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity.abs() < 300) return; // a slow drag is not a swipe
+    final day = _selectedDay!;
+    // Built from the date parts, not by adding 24 hours: a day with a
+    // daylight saving change is 23 or 25 hours long.
+    _selectDay(DateTime(day.year, day.month, day.day + (velocity < 0 ? 1 : -1)));
+  }
+
   Widget _buildDailyContent(DailyFileProvider dailyFileProvider) {
     final dateString = _formatDate(_selectedDay!);
     final dailyFile = dailyFileProvider.getDailyFileFromCache(dateString);
+    final isToday = isSameDay(_selectedDay, DateTime.now());
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.end,
           children: [
+            Expanded(
+              child: Text(
+                DateFormat('EEE d MMM').format(_selectedDay!),
+                style: Theme.of(context).textTheme.titleMedium,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (!isToday)
+              TextButton(
+                onPressed: () => _selectDay(DateTime.now()),
+                child: const Text('Today'),
+              ),
             IconButton(
               onPressed: () => _showQuickAddModal(context, dailyFileProvider),
               icon: const Icon(Icons.add),
@@ -164,7 +196,9 @@ class _CalendarViewState extends State<CalendarView> {
           ],
         ),
         const SizedBox(height: 16),
-        if (dailyFile != null)
+        if (dailyFile == null)
+          _buildEmptyDay(dailyFileProvider, dateString, isToday)
+        else
           Selector<ThemeProvider, String>(
             selector: (_, theme) => theme.logHeaderRegex,
             // The callbacks use the view's context, not the builder's.
@@ -179,6 +213,41 @@ class _CalendarViewState extends State<CalendarView> {
             ),
           ),
       ],
+    );
+  }
+
+  /// A day without a file: say so, and offer the two ways to fill it.
+  Widget _buildEmptyDay(
+      DailyFileProvider dailyFileProvider, String dateString, bool isToday) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 24),
+        child: Column(
+          children: [
+            Icon(isToday ? Icons.wb_sunny_outlined : Icons.event_note,
+                size: 48, color: theme.colorScheme.outline),
+            const SizedBox(height: 12),
+            Text(
+              isToday ? 'Nothing planned yet today' : 'Nothing for this day',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () =>
+                  _openDailyEditor(context, dailyFileProvider, dateString),
+              icon: const Icon(Icons.edit),
+              label: Text(isToday ? 'Start the day' : 'Write this day'),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () => _showQuickAddModal(context, dailyFileProvider),
+              icon: const Icon(Icons.add),
+              label: const Text('Quick add'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
