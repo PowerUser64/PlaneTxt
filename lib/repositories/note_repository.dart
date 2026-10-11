@@ -2,6 +2,7 @@ import 'package:path/path.dart' as path;
 import 'package:planetxt/models/note_file.dart';
 import 'package:planetxt/repositories/base_repository.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
 
 class NoteRepository extends BaseRepository<NoteFile> {
@@ -116,7 +117,25 @@ class NoteRepository extends BaseRepository<NoteFile> {
     return sanitized;
   }
 
-  /// Create new note file.
+  /// Create a note that must not exist yet. Throws
+  /// [FileAlreadyExistsException] instead of overwriting an existing file.
+  Future<NoteFile> createNew(String relativePath, String content) async {
+    if (!storageService.isInitialized) {
+      throw Exception('Storage not initialized');
+    }
+
+    final sanitizedRelativePath = _sanitizeRelativePath(relativePath);
+    final storePath = StorageService.notePath(sanitizedRelativePath);
+    if (await storageService.store!.exists(storePath)) {
+      throw FileAlreadyExistsException(
+        'A note named $sanitizedRelativePath already exists',
+        filePath: storePath,
+      );
+    }
+    return create(sanitizedRelativePath, content);
+  }
+
+  /// Write a note, creating or overwriting it (used by the editor's saves).
   Future<NoteFile> create(String relativePath, String content) async {
     if (!storageService.isInitialized) {
       throw Exception('Storage not initialized');

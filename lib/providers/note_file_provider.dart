@@ -101,29 +101,45 @@ class NoteFileProvider extends ChangeNotifier {
     try {
       Log.d('📝 NoteFileProvider: Saving note file $relativePath');
       final saved = await _noteRepository.create(relativePath, content);
-
-      // Upsert into the in-memory list instead of re-scanning the whole
-      // notes directory — this runs on every 500ms autosave. The list is
-      // sorted newest-first, and the note just saved is the newest.
-      _noteFiles = [
-        saved,
-        ..._noteFiles.where((n) => n.relativePath != saved.relativePath),
-      ];
-      notifyListeners();
-
-      _postSaveWidgetTimer?.cancel();
-      _postSaveWidgetTimer = Timer(_postSaveDebounce, () {
-        unawaited(_updateWidget());
-        // Flush the disk cache so a process kill doesn't lose this save
-        // from the next startup's fast-paint restore.
-        unawaited(_noteRepository.persistCache());
-      });
-
+      _onNoteWritten(saved);
       Log.d('📝 NoteFileProvider: Saved note file $relativePath');
     } catch (e) {
       Log.e('❌ NoteFileProvider: Error saving note file', error: e);
       rethrow;
     }
+  }
+
+  /// Create an empty note. Throws [FileAlreadyExistsException] when a note
+  /// already lives at [relativePath] - creating must never clobber one.
+  Future<NoteFile> createNoteFile(String relativePath) async {
+    try {
+      Log.d('📝 NoteFileProvider: Creating note file $relativePath');
+      final created = await _noteRepository.createNew(relativePath, '');
+      _onNoteWritten(created);
+      return created;
+    } catch (e) {
+      Log.e('❌ NoteFileProvider: Error creating note file', error: e);
+      rethrow;
+    }
+  }
+
+  void _onNoteWritten(NoteFile saved) {
+    // Upsert into the in-memory list instead of re-scanning the whole
+    // notes directory - this runs on every 500ms autosave. The list is
+    // sorted newest-first, and the note just saved is the newest.
+    _noteFiles = [
+      saved,
+      ..._noteFiles.where((n) => n.relativePath != saved.relativePath),
+    ];
+    notifyListeners();
+
+    _postSaveWidgetTimer?.cancel();
+    _postSaveWidgetTimer = Timer(_postSaveDebounce, () {
+      unawaited(_updateWidget());
+      // Flush the disk cache so a process kill doesn't lose this save
+      // from the next startup's fast-paint restore.
+      unawaited(_noteRepository.persistCache());
+    });
   }
 
   Future<bool> renameNoteFile(NoteFile note, String newName) async {

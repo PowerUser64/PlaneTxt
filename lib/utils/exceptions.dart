@@ -46,6 +46,16 @@ class FileOperationException extends PlaneTxtException {
   });
 }
 
+/// Exception thrown when creating a file that already exists
+class FileAlreadyExistsException extends FileOperationException {
+  const FileAlreadyExistsException(
+    super.message, {
+    super.filePath,
+    super.details,
+    super.originalError,
+  });
+}
+
 /// Exception thrown when directory operations fail
 class DirectoryException extends PlaneTxtException {
   final String? directoryPath;

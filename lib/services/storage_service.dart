@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:planetxt/services/file_store/file_store.dart';
 import 'package:planetxt/services/file_store/io_file_store.dart';
@@ -97,6 +98,16 @@ class StorageService {
     await _cleanupLegacyCaches();
     Log.i('📁 StorageService: Storage root ready '
         '(${_store!.rootDescription})');
+  }
+
+  /// Point the service at [store] directly, with [privateRoot] holding the
+  /// disk caches. Lets tests run repositories over a temp directory without
+  /// the path_provider plugin.
+  @visibleForTesting
+  void useStoreForTesting(FileStore store, Directory privateRoot) {
+    _store = store;
+    _privateRoot = privateRoot;
+    storageAccessLost = false;
   }
 
   IoFileStore _defaultStore() =>

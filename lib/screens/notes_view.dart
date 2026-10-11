@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:planetxt/models/note_file.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/widgets/note_editor.dart';
 import 'package:planetxt/widgets/note_list_item.dart';
 import 'package:provider/provider.dart';
@@ -135,24 +136,26 @@ class _NotesViewState extends State<NotesView> {
     }).toList();
   }
 
-  void _addNote() {
-    showDialog(
+  Future<void> _addNote() async {
+    final created = await showDialog<NoteFile>(
       context: context,
       builder: (context) => _AddNoteDialog(),
     );
+    if (created != null && mounted) _openNote(created);
   }
 
   void _openNote(NoteFile note) {
+    // Captured up front: the editor saves once more while it is being
+    // disposed, when the route's own context can no longer look it up.
+    final provider = context.read<NoteFileProvider>();
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => NoteEditor(
           note: note,
-          onSave: (content) => context
-              .read<NoteFileProvider>()
-              .saveNoteFile(note.relativePath, content),
-          onAutoSave: (content) => context
-              .read<NoteFileProvider>()
-              .saveNoteFile(note.relativePath, content),
+          onSave: (content) =>
+              provider.saveNoteFile(note.relativePath, content),
+          onAutoSave: (content) =>
+              provider.saveNoteFile(note.relativePath, content),
         ),
       ),
     );
@@ -197,6 +200,8 @@ class _AddNoteDialog extends StatefulWidget {
 class _AddNoteDialogState extends State<_AddNoteDialog> {
   final _nameController = TextEditingController();
   final _folderController = TextEditingController();
+  String? _error;
+  bool _creating = false;
 
   @override
   void dispose() {
@@ -214,10 +219,14 @@ class _AddNoteDialogState extends State<_AddNoteDialog> {
         children: [
           TextField(
             controller: _nameController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Note Name',
               hintText: 'Enter note name',
+              errorText: _error,
             ),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
           ),
           const SizedBox(height: 16),
           TextField(
@@ -235,7 +244,7 @@ class _AddNoteDialogState extends State<_AddNoteDialog> {
           child: const Text('Cancel'),
         ),
         TextButton(
-          onPressed: _createNote,
+          onPressed: _creating ? null : _createNote,
           child: const Text('Create'),
         ),
       ],
@@ -272,15 +281,34 @@ class _AddNoteDialogState extends State<_AddNoteDialog> {
     return sanitizedParts.join('/');
   }
 
-  void _createNote() {
+  Future<void> _createNote() async {
     final name = _sanitizeName(_nameController.text);
     if (name.isEmpty) return;
 
     final folder = _sanitizeFolder(_folderController.text);
     final relativePath = folder.isEmpty ? '$name.md' : '$folder/$name.md';
 
-    context.read<NoteFileProvider>().saveNoteFile(relativePath, '');
-    Navigator.of(context).pop();
+    final provider = context.read<NoteFileProvider>();
+    setState(() {
+      _creating = true;
+      _error = null;
+    });
+    try {
+      final created = await provider.createNoteFile(relativePath);
+      if (mounted) Navigator.of(context).pop(created);
+    } on FileAlreadyExistsException {
+      if (!mounted) return;
+      setState(() {
+        _creating = false;
+        _error = 'A note with this name already exists';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _creating = false;
+        _error = 'Could not create the note: $e';
+      });
+    }
   }
 }
 
