@@ -112,4 +112,34 @@ void main() {
       expect(provider.getTasks('20261011')[1].isCompleted, isTrue);
     });
   });
+  group('DailyFileProvider carry over', () {
+    test('a copy leaves the todos in their day', () async {
+      daily('20261009').writeAsStringSync('# Todos\n- [ ] a');
+
+      await provider.refillTodos(
+        '20261011',
+        {
+          '20261009': ['a'],
+        },
+        template: template,
+        todoHeaderRegex: todoHeader,
+        move: false,
+      );
+
+      expect(daily('20261011').readAsStringSync(), '# Todos\n\n- [ ] a');
+      expect(daily('20261009').readAsStringSync(), '# Todos\n- [ ] a');
+    });
+
+    test('finds the latest earlier day with undone todos', () async {
+      daily('20261008').writeAsStringSync('- [ ] old');
+      daily('20261009').writeAsStringSync('- [x] all done');
+      daily('20261011').writeAsStringSync('- [ ] today');
+      await provider.loadDailyFiles();
+
+      final latest = provider.latestUndoneBefore('20261011');
+      expect(latest?.date, '20261008');
+      expect(latest?.todos.map((t) => t.text), ['old']);
+      expect(provider.latestUndoneBefore('20261008'), isNull);
+    });
+  });
 }

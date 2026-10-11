@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:planetxt/constants/app_constants.dart';
 import 'package:planetxt/models/daily_file.dart';
 import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
+import 'package:planetxt/services/shared_prefs_service.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
 import 'package:planetxt/widgets/calendar_day_widget.dart';
@@ -31,6 +33,9 @@ class _CalendarViewState extends State<CalendarView> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   final Set<String> _pendingToggles = {};
+
+  /// Day the carry-over prompt was last answered (`yyyyMMdd`).
+  String? _carryOverAnswered;
   late final DailyFileProvider _dailyFileProvider;
 
   @override
@@ -42,6 +47,12 @@ class _CalendarViewState extends State<CalendarView> {
         _shownDay(_dailyFileProvider.selectedDate) ?? DateTime.now();
     _focusedDay = _selectedDay!;
     _dailyFileProvider.addListener(_followSelectedDate);
+    try {
+      _carryOverAnswered = SharedPrefsService.instance
+          .getString(AppConstants.carryOverPromptDateKey);
+    } on StateError {
+      // Preferences not loaded (tests).
+    }
   }
 
   @override
@@ -195,6 +206,7 @@ class _CalendarViewState extends State<CalendarView> {
             ),
           ],
         ),
+        if (isToday) _buildCarryOverPrompt(dailyFileProvider, dateString),
         const SizedBox(height: 16),
         if (dailyFile == null)
           _buildEmptyDay(dailyFileProvider, dateString, isToday)
@@ -214,6 +226,64 @@ class _CalendarViewState extends State<CalendarView> {
           ),
       ],
     );
+  }
+
+  /// First look at today: offer to carry over the todos left undone on the
+  /// last day that has some, within a week. Shown until answered, once a
+  /// day.
+  Widget _buildCarryOverPrompt(
+      DailyFileProvider dailyFileProvider, String today) {
+    if (_carryOverAnswered == today) return const SizedBox.shrink();
+    final latest = dailyFileProvider.latestUndoneBefore(today);
+    // Older todos are likely dropped: no prompt about them every morning.
+    if (latest == null ||
+        _parseDateFromString(latest.date)
+            .isBefore(_selectedDay!.subtract(const Duration(days: 7)))) {
+      return const SizedBox.shrink();
+    }
+    final count = latest.todos.length;
+    final day = DateFormat('EEE d MMM').format(_parseDateFromString(latest.date));
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(count == 1
+                ? '1 todo left undone on $day'
+                : '$count todos left undone on $day'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => _answerCarryOver(today),
+                  child: const Text('Dismiss'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    _answerCarryOver(today);
+                    _showRefillDialog(context, dailyFileProvider, today,
+                        preselectDate: latest.date);
+                  },
+                  child: const Text('Carry over'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _answerCarryOver(String today) {
+    setState(() => _carryOverAnswered = today);
+    try {
+      unawaited(SharedPrefsService.instance
+          .setString(AppConstants.carryOverPromptDateKey, today));
+    } on StateError {
+      // Preferences not loaded (tests): answered for this session only.
+    }
   }
 
   /// A day without a file: say so, and offer the two ways to fill it.
@@ -431,8 +501,11 @@ class _CalendarViewState extends State<CalendarView> {
     );
   }
 
+  /// Offer the undone todos of the days before [currentDate], those of
+  /// [preselectDate] already ticked.
   void _showRefillDialog(BuildContext context,
-      DailyFileProvider dailyFileProvider, String currentDate) {
+      DailyFileProvider dailyFileProvider, String currentDate,
+      {String? preselectDate}) {
     final undoneTodos = <RefillTodo>[];
 
     // Every daily file strictly before the selected day, newest first —
@@ -445,8 +518,8 @@ class _CalendarViewState extends State<CalendarView> {
           undoneTodos.add(RefillTodo(
             text: task.text,
             sourceDate: dailyFile.date,
-            sourceDateDisplay:
-                _formatDisplayDate(_parseDateFromString(dailyFile.date)),
+            sourceDateDisplay: DateFormat('EEE d MMM yyyy')
+                .format(_parseDateFromString(dailyFile.date)),
           ));
         }
       }
@@ -466,14 +539,20 @@ class _CalendarViewState extends State<CalendarView> {
       // the first await and every context.mounted guard would skip the saves.
       builder: (dialogContext) => RefillDialog(
         undoneTodos: undoneTodos,
-        onRefill: (selectedTodos) =>
-            _performRefill(context, dailyFileProvider, selectedTodos, currentDate),
+        initiallySelected: {
+          for (var i = 0; i < undoneTodos.length; i++)
+            if (undoneTodos[i].sourceDate == preselectDate) i,
+        },
+        onRefill: (selectedTodos, {required move}) => _performRefill(
+            context, dailyFileProvider, selectedTodos, currentDate,
+            move: move),
       ),
     );
   }
 
   void _performRefill(BuildContext context, DailyFileProvider dailyFileProvider,
-      List<RefillTodo> selectedTodos, String targetDate) async {
+      List<RefillTodo> selectedTodos, String targetDate,
+      {required bool move}) async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     final textsBySource = <String, List<String>>{};
     for (final todo in selectedTodos) {
@@ -486,6 +565,7 @@ class _CalendarViewState extends State<CalendarView> {
         textsBySource,
         template: themeProvider.dailyTemplate,
         todoHeaderRegex: themeProvider.todoHeaderRegex,
+        move: move,
       );
     } catch (e) {
       if (context.mounted) _showSaveError(context, e);
@@ -496,7 +576,7 @@ class _CalendarViewState extends State<CalendarView> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
             content: Text(
-                'Refilled ${selectedTodos.length} undone todo(s) to ${_formatDisplayDate(_parseDateFromString(targetDate))}')),
+                '${move ? 'Moved' : 'Copied'} ${selectedTodos.length} todo(s) to ${_formatDisplayDate(_parseDateFromString(targetDate))}')),
       );
     }
   }

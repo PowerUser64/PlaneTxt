@@ -58,6 +58,8 @@ class AppConstants {
   static const String storageChoiceOfferedKey = 'storage_choice_offered';
   // Minutes before an event its reminder fires; negative: no reminders.
   static const String reminderMinutesKey = 'reminder_minutes_before';
+  // Day (yyyyMMdd) the "carry over yesterday's todos" prompt was answered.
+  static const String carryOverPromptDateKey = 'carry_over_prompt_date';
   // Set once the notification permission was requested (first launch).
   static const String notificationPermissionAskedKey =
       'notification_permission_asked';

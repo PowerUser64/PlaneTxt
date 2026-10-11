@@ -99,4 +99,43 @@ void main() {
     expect(find.text('Nothing planned yet today'), findsOneWidget);
     expect(find.text('Start the day'), findsOneWidget);
   });
+  group('carry-over prompt', () {
+    String dateOf(DateTime d) => '${d.year}'
+        '${d.month.toString().padLeft(2, '0')}${d.day.toString().padLeft(2, '0')}';
+
+    Future<void> withYesterday(WidgetTester tester, String content) async {
+      final now = DateTime.now();
+      final yesterday = dateOf(DateTime(now.year, now.month, now.day - 1));
+      File('${tempDir.path}/Org/dailies/$yesterday.md')
+          .writeAsStringSync(content);
+      await tester.runAsync(() => provider.loadDailyFiles());
+    }
+
+    testWidgets('offers yesterday\'s undone todos, until dismissed',
+        (tester) async {
+      await withYesterday(tester, '- [ ] call the bank\n- [x] done');
+      await tester.pumpWidget(calendar());
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('1 todo left undone'), findsOneWidget);
+
+      await tester.tap(find.text('Dismiss'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('left undone'), findsNothing);
+    });
+
+    testWidgets('opens the carry-over with those todos ticked',
+        (tester) async {
+      await withYesterday(tester, '- [ ] call the bank');
+      await tester.pumpWidget(calendar());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Carry over'));
+      await tester.pumpAndSettle();
+
+      final tile = tester.widget<CheckboxListTile>(
+          find.widgetWithText(CheckboxListTile, 'call the bank'));
+      expect(tile.value, isTrue);
+    });
+  });
 }

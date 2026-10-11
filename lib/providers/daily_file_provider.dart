@@ -385,15 +385,28 @@ class DailyFileProvider extends ChangeNotifier {
       updateDailyFile(
           date, (content) => DailyContentHelper.setTodoDone(content, task, done));
 
+  /// The latest day before [date] that has undone todos, with them.
+  ({String date, List<TaskItem> todos})? latestUndoneBefore(String date) {
+    for (final file in _dailyFiles) {
+      // Sorted newest first.
+      if (file.date.compareTo(date) >= 0) continue;
+      final undone = getTasks(file.date).where((t) => !t.isCompleted).toList();
+      if (undone.isNotEmpty) return (date: file.date, todos: undone);
+    }
+    return null;
+  }
+
   /// Move undone todos ([todoTextsBySource]: source date to todo texts) from
-  /// earlier days to [targetDate]. The target is written first: if that
-  /// fails, every todo is still in its source day. An interruption after
-  /// it can leave a todo in both days, never in neither.
+  /// earlier days to [targetDate], or copy them without [move]. The target
+  /// is written first: if that fails, every todo is still in its source
+  /// day. An interruption after it can leave a todo in both days, never in
+  /// neither.
   Future<void> refillTodos(
     String targetDate,
     Map<String, List<String>> todoTextsBySource, {
     required String template,
     required String todoHeaderRegex,
+    bool move = true,
   }) async {
     final texts = todoTextsBySource.values.expand((t) => t).toList();
     await updateDailyFile(targetDate, (content) {
@@ -405,6 +418,7 @@ class DailyFileProvider extends ChangeNotifier {
       return updated;
     }, template: template);
 
+    if (!move) return;
     for (final entry in todoTextsBySource.entries) {
       await updateDailyFile(entry.key,
           (content) => DailyContentHelper.removeUndoneTodos(content, entry.value));
