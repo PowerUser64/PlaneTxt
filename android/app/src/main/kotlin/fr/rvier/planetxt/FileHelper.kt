@@ -154,12 +154,12 @@ object FileHelper {
     }
 
     /**
-     * Get default storage path (Documents/Org)
+     * Default storage path: the app's own Org folder, where the Flutter side
+     * puts it. path_provider's application documents directory is
+     * getDir("flutter"), i.e. app_flutter/ - not filesDir/documents/.
      */
     fun getDefaultStoragePath(context: Context): File {
-        val documentsDir = context.filesDir.resolve("documents")
-        val orgDir = documentsDir.resolve(ORG_DIR_NAME)
-        return orgDir
+        return context.getDir("flutter", Context.MODE_PRIVATE).resolve(ORG_DIR_NAME)
     }
 
     /**
