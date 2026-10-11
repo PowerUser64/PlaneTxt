@@ -27,7 +27,7 @@ PlaneTxt (formerly Planova) is the successor of MOrg: it replaces the calendar.t
 - **Search**: find any day or note from the calendar, ignoring case and accents.
 - **Notes**: a searchable list of notes grouped in folders you can fold, with share, archive, rename and delete.
 - **Markdown editor**: formatting toolbar, auto-indent and todo handling.
-- **ICS import**: share an .ics file to PlaneTxt to merge its events into the right days. Importing the same file twice adds nothing. Any other shared text can be added to today as a todo, an event or a log.
+- **ICS import**: share an .ics file to PlaneTxt to merge its events into the right days. Importing the same file twice adds nothing. Any other shared text can be added to today as a todo, an event or a log, or saved as a new note.
 - **Home screen widget** (Android): today's events and todos, with light and dark styles and adjustable transparency.
 - **Themes**: system, light or dark mode, with Gruvbox, Nord, Adwaita, Monokai and Everforest color themes.
 - **Your storage, your rules**: keep the default app folder or pick any folder through the system picker. No storage permission is needed.
@@ -106,7 +106,7 @@ Done:
 - [x] Event notifications
 - [x] Android home screen widget
 - [x] ICS import through the Android share sheet
-- [x] Shared text added to today as a todo, an event or a log
+- [x] Shared text added to today as a todo, an event or a log, or saved as a note
 - [x] Notes grouped in folders that fold and unfold
 - [x] Share a note, archive a note to `archives/`
 - [x] Custom storage folder through the system picker, no storage permission
@@ -116,7 +116,6 @@ Done:
 Next:
 
 - [ ] F-Droid and IzzyOnDroid listings
-- [ ] Receive shared text as a new note
 - [ ] Weekly review screen
 - [ ] Desktop layout for wide screens
 

@@ -7,6 +7,9 @@ enum QuickAddType {
   event,
   todo,
   log,
+
+  /// A new note rather than a line of the day (shared text only).
+  note,
 }
 
 /// Insert the quick-add [line] of [type] into the day's [content], in the
@@ -20,6 +23,8 @@ String insertQuickAdd(
           content, line, theme.todoHeaderRegex),
       QuickAddType.log => DailyContentHelper.insertAtEndOfSection(
           content, line, theme.logHeaderRegex),
+      QuickAddType.note =>
+        throw ArgumentError('A note is not a line of the day'),
     };
 
 class QuickAddModal extends StatefulWidget {
@@ -30,12 +35,17 @@ class QuickAddModal extends StatefulWidget {
   final String initialText;
   final QuickAddType initialType;
 
+  /// When set, a "Note" choice calls it with the title as the note's name,
+  /// instead of [onAdd].
+  final void Function(String name)? onAddNote;
+
   const QuickAddModal({
     super.key,
     required this.selectedDate,
     required this.onAdd,
     this.initialText = '',
     this.initialType = QuickAddType.event,
+    this.onAddNote,
   });
 
   @override
@@ -121,22 +131,35 @@ class _QuickAddModalState extends State<QuickAddModal> {
             SizedBox(
               width: double.infinity,
               child: SegmentedButton<QuickAddType>(
-                segments: const [
+                // Labels only with four choices: icons would not fit.
+                showSelectedIcon: widget.onAddNote == null,
+                segments: [
                   ButtonSegment<QuickAddType>(
                     value: QuickAddType.event,
-                    label: Text('Event'),
-                    icon: Icon(Icons.event),
+                    label: const Text('Event'),
+                    icon: widget.onAddNote == null
+                        ? const Icon(Icons.event)
+                        : null,
                   ),
                   ButtonSegment<QuickAddType>(
                     value: QuickAddType.todo,
-                    label: Text('Todo'),
-                    icon: Icon(Icons.check_box_outlined),
+                    label: const Text('Todo'),
+                    icon: widget.onAddNote == null
+                        ? const Icon(Icons.check_box_outlined)
+                        : null,
                   ),
                   ButtonSegment<QuickAddType>(
                     value: QuickAddType.log,
-                    label: Text('Log'),
-                    icon: Icon(Icons.note),
+                    label: const Text('Log'),
+                    icon: widget.onAddNote == null
+                        ? const Icon(Icons.note)
+                        : null,
                   ),
+                  if (widget.onAddNote != null)
+                    const ButtonSegment<QuickAddType>(
+                      value: QuickAddType.note,
+                      label: Text('Note'),
+                    ),
                 ],
                 selected: {_selectedType},
                 onSelectionChanged: (Set<QuickAddType> selection) {
@@ -182,6 +205,7 @@ class _QuickAddModalState extends State<QuickAddModal> {
                   QuickAddType.event => 'Add Event',
                   QuickAddType.todo => 'Add Todo',
                   QuickAddType.log => 'Add Log',
+                  QuickAddType.note => 'Save Note',
                 }),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
@@ -229,7 +253,13 @@ class _QuickAddModalState extends State<QuickAddModal> {
     }
 
     String content;
-    if (_selectedType == QuickAddType.event) {
+    if (_selectedType == QuickAddType.note) {
+      widget.onAddNote!(title);
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Note saved')));
+      return;
+    } else if (_selectedType == QuickAddType.event) {
       final timeStr = _formatTime24Hour(_selectedTime);
       content = '- @$timeStr $title';
     } else if (_selectedType == QuickAddType.log) {
@@ -247,6 +277,7 @@ class _QuickAddModalState extends State<QuickAddModal> {
       QuickAddType.event => 'Event added',
       QuickAddType.todo => 'Todo added',
       QuickAddType.log => 'Log added',
+      QuickAddType.note => 'Note saved',
     };
 
     ScaffoldMessenger.of(context).showSnackBar(

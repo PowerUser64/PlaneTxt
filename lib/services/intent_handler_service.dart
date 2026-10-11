@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:planetxt/models/calendar_event.dart';
+import 'package:planetxt/models/note_file.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
+import 'package:planetxt/providers/note_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/services/ics_parser_service.dart';
 import 'package:planetxt/utils/daily_content_helper.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
+import 'package:planetxt/utils/note_names.dart';
 import 'package:planetxt/widgets/quick_add_modal.dart';
 import 'package:provider/provider.dart';
 
@@ -155,17 +159,20 @@ class IntentHandlerService {
     }
   }
 
-  /// Offer to add [text], shared from another app, to today: as a todo by
-  /// default. Returns today's date once it is saved.
+  /// Offer to add [text], shared from another app, to today (as a todo by
+  /// default) or to save it as a new note. Returns today's date once a line
+  /// of it is saved.
   static Future<String?> _handleSharedText(
       BuildContext context, String text) async {
     // Looked up before the dialog: the save runs after it closed.
     final dailyFileProvider = context.read<DailyFileProvider>();
+    final noteFileProvider = context.read<NoteFileProvider>();
     final themeProvider = context.read<ThemeProvider>();
     final messenger = ScaffoldMessenger.of(context);
     final today = DateTime.now();
     final date = DateFormat('yyyyMMdd').format(today);
     Future<void>? saving;
+    var asNote = false;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => QuickAddModal(
@@ -178,12 +185,17 @@ class IntentHandlerService {
           (content) => insertQuickAdd(content, line, type, themeProvider),
           template: themeProvider.dailyTemplate,
         ),
+        // The whole text, line breaks included.
+        onAddNote: (name) {
+          asNote = true;
+          saving = saveSharedNote(noteFileProvider, name, text);
+        },
       ),
     );
     if (saving == null) return null; // dismissed
     try {
       await saving;
-      return date;
+      return asNote ? null : date;
     } catch (e) {
       Log.e('❌ IntentHandlerService: Error adding shared text', error: e);
       messenger.showSnackBar(SnackBar(
@@ -191,6 +203,25 @@ class IntentHandlerService {
         duration: const Duration(seconds: 4),
       ));
       return null;
+    }
+  }
+
+  /// Save [text] as a new note named after [name], shortened; a name
+  /// already taken gets a number.
+  @visibleForTesting
+  static Future<NoteFile> saveSharedNote(
+      NoteFileProvider notes, String name, String text) async {
+    var base = sanitizeNoteName(name);
+    if (base.length > 60) base = base.substring(0, 60);
+    if (base.isEmpty) base = 'Shared';
+    for (var n = 1;; n++) {
+      try {
+        return await notes.createNoteFile(
+            n == 1 ? '$base.md' : '${base}_$n.md',
+            content: text);
+      } on FileAlreadyExistsException {
+        if (n >= 50) rethrow;
+      }
     }
   }
 

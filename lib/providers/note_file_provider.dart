@@ -129,10 +129,11 @@ class NoteFileProvider extends ChangeNotifier {
 
   /// Create an empty note. Throws [FileAlreadyExistsException] when a note
   /// already lives at [relativePath] - creating must never clobber one.
-  Future<NoteFile> createNoteFile(String relativePath) async {
+  Future<NoteFile> createNoteFile(String relativePath,
+      {String content = ''}) async {
     try {
       Log.d('📝 NoteFileProvider: Creating note file $relativePath');
-      final created = await _noteRepository.createNew(relativePath, '');
+      final created = await _noteRepository.createNew(relativePath, content);
       _onNoteWritten(created);
       return created;
     } catch (e) {
