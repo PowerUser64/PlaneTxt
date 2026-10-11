@@ -8,6 +8,7 @@ import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/services/widget_service.dart';
 import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
+import 'package:planetxt/utils/note_names.dart';
 
 class NoteFileProvider extends ChangeNotifier {
   final StorageService _storageService = StorageService();
@@ -219,8 +220,7 @@ class NoteFileProvider extends ChangeNotifier {
     }
 
     // Clean the new name
-    final cleanName =
-        newName.trim().replaceAll(RegExp(r'[^\w\s-]'), '').replaceAll(' ', '_');
+    final cleanName = sanitizeNoteName(newName);
     if (cleanName.isEmpty) {
       Log.w('📝 NoteFileProvider: Cleaned name is empty');
       return false;

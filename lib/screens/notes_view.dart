@@ -3,6 +3,7 @@ import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/models/note_file.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
 import 'package:planetxt/utils/exceptions.dart';
+import 'package:planetxt/utils/note_names.dart';
 import 'package:planetxt/widgets/note_editor.dart';
 import 'package:planetxt/widgets/note_list_item.dart';
 import 'package:provider/provider.dart';
@@ -288,41 +289,11 @@ class _AddNoteDialogState extends State<_AddNoteDialog> {
     );
   }
 
-  String _sanitizeName(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) return '';
-
-    // Prevent path separators in names.
-    final withoutSeparators = trimmed.replaceAll(RegExp(r'[/\\]'), ' ');
-
-    return withoutSeparators
-        .replaceAll(RegExp(r'[^\w\s-]'), '')
-        .trim()
-        .replaceAll(RegExp(r'\s+'), '_');
-  }
-
-  String _sanitizeFolder(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) return '';
-
-    final parts = trimmed.replaceAll('\\', '/').split('/');
-    final sanitizedParts = <String>[];
-
-    for (final part in parts) {
-      final clean = _sanitizeName(part);
-      if (clean.isEmpty) continue;
-      if (clean == '.' || clean == '..') continue;
-      sanitizedParts.add(clean);
-    }
-
-    return sanitizedParts.join('/');
-  }
-
   Future<void> _createNote() async {
-    final name = _sanitizeName(_nameController.text);
+    final name = sanitizeNoteName(_nameController.text);
     if (name.isEmpty) return;
 
-    final folder = _sanitizeFolder(_folderController.text);
+    final folder = sanitizeNoteFolder(_folderController.text);
     final relativePath = folder.isEmpty ? '$name.md' : '$folder/$name.md';
 
     final provider = context.read<NoteFileProvider>();
