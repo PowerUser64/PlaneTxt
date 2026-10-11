@@ -24,6 +24,9 @@ class CalendarView extends StatefulWidget {
 }
 
 class _CalendarViewState extends State<CalendarView> {
+  static final DateTime _firstDay = DateTime(2000);
+  static final DateTime _lastDay = DateTime(2100, 12, 31);
+
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   final Set<String> _pendingToggles = {};
@@ -34,9 +37,8 @@ class _CalendarViewState extends State<CalendarView> {
     super.initState();
     _dailyFileProvider = context.read<DailyFileProvider>();
     // The day picked last (or by an ICS import before this view existed).
-    final selected = _dailyFileProvider.selectedDate;
     _selectedDay =
-        selected.isEmpty ? DateTime.now() : _parseDateFromString(selected);
+        _shownDay(_dailyFileProvider.selectedDate) ?? DateTime.now();
     _focusedDay = _selectedDay!;
     _dailyFileProvider.addListener(_followSelectedDate);
   }
@@ -51,8 +53,9 @@ class _CalendarViewState extends State<CalendarView> {
   /// the app opens on the imported day.
   void _followSelectedDate() {
     final date = _dailyFileProvider.selectedDate;
-    if (date.isEmpty || date == _formatDate(_selectedDay!)) return;
-    final day = _parseDateFromString(date);
+    if (date == _formatDate(_selectedDay!)) return;
+    final day = _shownDay(date);
+    if (day == null) return;
     setState(() {
       _selectedDay = day;
       _focusedDay = day;
@@ -69,8 +72,8 @@ class _CalendarViewState extends State<CalendarView> {
             Container(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               child: TableCalendar<DailyFile>(
-                firstDay: DateTime(2020),
-                lastDay: DateTime(2030),
+                firstDay: _firstDay,
+                lastDay: _lastDay,
                 focusedDay: _focusedDay,
                 selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
                 onDaySelected: (selectedDay, focusedDay) {
@@ -177,6 +180,13 @@ class _CalendarViewState extends State<CalendarView> {
           ),
       ],
     );
+  }
+
+  /// The day [date] (`yyyyMMdd`) names, if the calendar can show it.
+  DateTime? _shownDay(String date) {
+    if (!RegExp(r'^\d{8}$').hasMatch(date)) return null;
+    final day = _parseDateFromString(date);
+    return day.isBefore(_firstDay) || day.isAfter(_lastDay) ? null : day;
   }
 
   /// Check or uncheck [task]. A second tap on the same row while the first

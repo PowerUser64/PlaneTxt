@@ -50,4 +50,15 @@ void main() {
 
     expect(find.text('December 2027'), findsOneWidget);
   });
+  testWidgets('ignores a day the calendar cannot show', (tester) async {
+    await tester.pumpWidget(calendar());
+    final shown = find.textContaining(RegExp(r'\d{4}$'));
+    final before = (tester.widget(shown.first) as Text).data;
+
+    provider.setSelectedDate('21500101'); // past the calendar's last day
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect((tester.widget(shown.first) as Text).data, before);
+  });
 }

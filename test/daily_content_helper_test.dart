@@ -61,6 +61,16 @@ something''';
       expect(lines.indexOf('- @10:00 review'),
           lines.indexOf('- @09:00 standup') + 1);
     });
+
+    test('inserts after the description of the last event', () {
+      const content = '## Events\n- @09:00 standup\n  room 4\n\n## Tasks';
+      final result = DailyContentHelper.insertAfterLastEvent(
+          content, '- @10:00 review', eventHeader);
+      expect(result,
+          '## Events\n- @09:00 standup\n  room 4\n- @10:00 review\n\n## Tasks');
+      final events = MarkdownParser.parseEvents('20261011', result);
+      expect(events.first.description, 'room 4');
+    });
   });
 
   group('DailyContentHelper.insertEventsChronologically', () {

@@ -308,26 +308,13 @@ class DailyContentHelper {
     String eventContent,
     String eventHeaderRegex,
   ) {
-    if (eventHeaderRegex.isEmpty) return _appendAtEnd(content, eventContent);
-
-    try {
-      final regex = RegExp(eventHeaderRegex, multiLine: true);
-      final lines = content.split('\n');
-      final range =
-          _findSection(lines, regex, strictItemPredicate: _isEventLine);
-      if (!range.found) return _appendAtEnd(content, eventContent);
-
-      return _insertItem(
-        lines: lines,
-        range: range,
-        newItem: eventContent,
-        itemMatcher: _isEventLine,
-      );
-    } catch (e) {
-      Log.e('DailyContentHelper: error inserting event after last event',
-          error: e);
-      return _appendAtEnd(content, eventContent);
-    }
+    final lines = content.split('\n');
+    final header = _firstMatchingLine(lines, eventHeaderRegex);
+    if (header < 0) return _appendAtEnd(content, eventContent);
+    // After the last event's description, not between event and
+    // description: no event starts later than 24:00.
+    _insertEventBlock(lines, header, 24 * 60, eventContent.split('\n'));
+    return lines.join('\n');
   }
 
   /// Inserts a todo after the last existing todo in the tasks section.
