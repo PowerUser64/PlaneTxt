@@ -379,6 +379,12 @@ class DailyFileProvider extends ChangeNotifier {
     }
   }
 
+  /// Check ([done]) or uncheck [task] of [date], in the file as it is on
+  /// disk.
+  Future<void> setTodoDone(String date, TaskItem task, bool done) =>
+      updateDailyFile(
+          date, (content) => DailyContentHelper.setTodoDone(content, task, done));
+
   /// Move undone todos ([todoTextsBySource]: source date to todo texts) from
   /// earlier days to [targetDate]. The target is written first: if that
   /// fails, every todo is still in its source day. An interruption after

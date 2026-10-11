@@ -8,6 +8,7 @@ import 'package:planetxt/providers/note_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/utils/daily_content_helper.dart';
 import 'package:planetxt/utils/logger.dart';
+import 'package:planetxt/utils/markdown_parser.dart';
 import 'package:planetxt/widgets/calendar_day_widget.dart';
 import 'package:planetxt/widgets/daily_content_view.dart';
 import 'package:planetxt/widgets/daily_editor_fullscreen.dart';
@@ -26,6 +27,7 @@ class CalendarView extends StatefulWidget {
 class _CalendarViewState extends State<CalendarView> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
+  final Set<String> _pendingToggles = {};
 
   @override
   void initState() {
@@ -135,16 +137,36 @@ class _CalendarViewState extends State<CalendarView> {
         ),
         const SizedBox(height: 16),
         if (dailyFile != null)
-          GestureDetector(
-            onDoubleTap: () =>
-                _openDailyEditor(context, dailyFileProvider, dateString),
-            child: DailyContentView(
+          Selector<ThemeProvider, String>(
+            selector: (_, theme) => theme.logHeaderRegex,
+            // The callbacks use the view's context, not the builder's.
+            builder: (_, logHeaderRegex, __) => DailyContentView(
               dailyFileProvider: dailyFileProvider,
               dateString: dateString,
+              logHeaderRegex: logHeaderRegex,
+              onOpenEditor: () =>
+                  _openDailyEditor(context, dailyFileProvider, dateString),
+              onToggleTask: (task, done) =>
+                  _toggleTask(dailyFileProvider, dateString, task, done),
             ),
           ),
       ],
     );
+  }
+
+  /// Check or uncheck [task]. A second tap on the same row while the first
+  /// one is being written is ignored: it would act on the stale state.
+  Future<void> _toggleTask(DailyFileProvider dailyFileProvider, String date,
+      TaskItem task, bool done) async {
+    final key = '$date:${task.line}';
+    if (!_pendingToggles.add(key)) return;
+    try {
+      await dailyFileProvider.setTodoDone(date, task, done);
+    } catch (e) {
+      if (mounted) _showSaveError(context, e);
+    } finally {
+      _pendingToggles.remove(key);
+    }
   }
 
   void _loadDailyContent(DateTime day) {

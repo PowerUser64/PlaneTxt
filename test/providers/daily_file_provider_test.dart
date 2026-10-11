@@ -100,4 +100,16 @@ void main() {
           ['08:10 run', 'idea']);
     });
   });
+  group('DailyFileProvider.setTodoDone', () {
+    test('checks the todo in the file', () async {
+      daily('20261011').writeAsStringSync('# Todos\n- [ ] a\n- [ ] b');
+      await provider.ensureDailyFileLoaded('20261011');
+      final task = provider.getTasks('20261011')[1];
+
+      await provider.setTodoDone('20261011', task, true);
+
+      expect(daily('20261011').readAsStringSync(), '# Todos\n- [ ] a\n- [x] b');
+      expect(provider.getTasks('20261011')[1].isCompleted, isTrue);
+    });
+  });
 }

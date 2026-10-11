@@ -5,7 +5,7 @@ Everything is stored as Markdown files in a folder you choose. One daily file pe
 Features:
 
 - Month calendar with the Markdown content of the selected day below it
-- Check and uncheck todos with a double tap
+- Check and uncheck todos with a tap
 - Refill: carry unfinished todos over to today
 - Notes browser with search and rename
 - Home screen widget showing today's agenda and todos

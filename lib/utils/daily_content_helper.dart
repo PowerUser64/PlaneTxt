@@ -307,6 +307,33 @@ class DailyContentHelper {
         : '$before\n\n$newItem';
   }
 
+  static final RegExp _checkbox = RegExp(r'^(\s*[-*+]\s*\[)\s*[xX\s]\s*(\])');
+
+  /// Checks ([done]) or unchecks the todo [task] was parsed from: the one
+  /// at [TaskItem.line], or if the file changed since, the first todo with
+  /// the same text and state. [content] is returned unchanged when no such
+  /// todo is left. Only the checkbox changes.
+  static String setTodoDone(String content, TaskItem task, bool done) =>
+      _keepingLineEndings(content, (c) {
+        final lines = c.split('\n');
+        bool isTask(int i) {
+          final parsed = MarkdownParser.parseTasks(lines[i]);
+          return parsed.length == 1 &&
+              parsed.single.text == task.text &&
+              parsed.single.isCompleted == task.isCompleted;
+        }
+
+        var index = task.line;
+        if (index < 0 || index >= lines.length || !isTask(index)) {
+          index = Iterable<int>.generate(lines.length)
+              .firstWhere(isTask, orElse: () => -1);
+        }
+        if (index < 0) return c;
+        lines[index] = lines[index].replaceFirstMapped(
+            _checkbox, (m) => '${m[1]}${done ? 'x' : ' '}${m[2]}');
+        return lines.join('\n');
+      });
+
   /// Removes one undone todo line per entry of [todoTexts], matched on the
   /// parsed task text: `* [ ]` bullets or extra spaces still match.
   /// Checked todos are left alone.

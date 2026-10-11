@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:planetxt/utils/daily_content_helper.dart';
+import 'package:planetxt/utils/markdown_parser.dart';
 
 const todoHeader = r'^#{1,2}\s+.*Tasks?';
 const eventHeader = r'^#{1,2}\s+.*Events?';
@@ -178,6 +179,48 @@ note''';
       const content = '- [ ] a\r\n- [ ] b\r\n';
       expect(DailyContentHelper.removeUndoneTodos(content, ['a']),
           '- [ ] b\r\n');
+    });
+  });
+  group('DailyContentHelper.setTodoDone', () {
+    TaskItem taskAt(String content, int index) =>
+        MarkdownParser.parseTasks(content)[index];
+
+    test('checks the todo at its line, keeping its bullet', () {
+      const content = '# Todos\n* [ ] a\n- [ ] b';
+      final updated =
+          DailyContentHelper.setTodoDone(content, taskAt(content, 0), true);
+      expect(updated, '# Todos\n* [x] a\n- [ ] b');
+    });
+
+    test('unchecks a todo checked with an uppercase X', () {
+      const content = '- [X] a';
+      expect(DailyContentHelper.setTodoDone(content, taskAt(content, 0), false),
+          '- [ ] a');
+    });
+
+    test('picks the right one among identical todos', () {
+      const content = '- [ ] call\n- [ ] call';
+      expect(DailyContentHelper.setTodoDone(content, taskAt(content, 1), true),
+          '- [ ] call\n- [x] call');
+    });
+
+    test('follows the todo when lines moved since it was read', () {
+      const before = '- [ ] a\n- [ ] b';
+      final task = taskAt(before, 1);
+      const now = '# Synced meanwhile\n- [ ] a\n- [ ] b';
+      expect(DailyContentHelper.setTodoDone(now, task, true),
+          '# Synced meanwhile\n- [ ] a\n- [x] b');
+    });
+
+    test('leaves the file alone when the todo is gone', () {
+      final task = taskAt('- [ ] a', 0);
+      expect(DailyContentHelper.setTodoDone('- [x] a', task, true), '- [x] a');
+    });
+
+    test('keeps CRLF line endings', () {
+      const content = '- [ ] a\r\n- [ ] b\r\n';
+      expect(DailyContentHelper.setTodoDone(content, taskAt(content, 1), true),
+          '- [ ] a\r\n- [x] b\r\n');
     });
   });
 }
