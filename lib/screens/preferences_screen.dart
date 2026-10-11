@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:planetxt/providers/directory_provider.dart';
@@ -8,8 +10,26 @@ import 'package:planetxt/screens/preferences/storage_section.dart';
 import 'package:planetxt/widgets/theme_selector.dart';
 import 'package:provider/provider.dart';
 
-class PreferencesScreen extends StatelessWidget {
+class PreferencesScreen extends StatefulWidget {
   const PreferencesScreen({super.key});
+
+  @override
+  State<PreferencesScreen> createState() => _PreferencesScreenState();
+}
+
+class _PreferencesScreenState extends State<PreferencesScreen> {
+  /// Diagnostics and notification tests, revealed by a long press on the
+  /// version: they mean nothing to most users, and some write test data.
+  bool _showDebugTools = false;
+
+  void _toggleDebugTools() {
+    setState(() => _showDebugTools = !_showDebugTools);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_showDebugTools
+          ? 'Debug tools shown at the bottom'
+          : 'Debug tools hidden'),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,40 +49,43 @@ class PreferencesScreen extends StatelessWidget {
               },
             ),
             const ThemeSelector(),
-            Consumer<ThemeProvider>(
-              builder: (context, themeProvider, child) {
-                return SwitchListTile(
-                  secondary: const Icon(Icons.widgets),
-                  title: const Text('Widget Dark Theme'),
-                  subtitle: const Text('Use dark theme for home screen widget'),
-                  value: themeProvider.widgetDarkTheme,
-                  onChanged: (value) => themeProvider.setWidgetTheme(value),
-                );
-              },
-            ),
-            Consumer<ThemeProvider>(
-              builder: (context, themeProvider, child) {
-                return ListTile(
-                  leading: const Icon(Icons.opacity),
-                  title: const Text('Widget Transparency'),
-                  subtitle: Text(
-                      '${(themeProvider.widgetTransparency * 100).round()}% opaque'),
-                  trailing: SizedBox(
-                    width: 200,
-                    child: Slider(
-                      value: themeProvider.widgetTransparency,
-                      min: 0.1,
-                      max: 1.0,
-                      divisions: 9,
-                      label:
-                          '${(themeProvider.widgetTransparency * 100).round()}%',
-                      onChanged: (value) =>
-                          themeProvider.setWidgetTransparency(value),
+            // The home screen widget only exists on Android.
+            if (Platform.isAndroid)
+              Consumer<ThemeProvider>(
+                builder: (context, themeProvider, child) {
+                  return SwitchListTile(
+                    secondary: const Icon(Icons.widgets),
+                    title: const Text('Widget Dark Theme'),
+                    subtitle: const Text('Use dark theme for home screen widget'),
+                    value: themeProvider.widgetDarkTheme,
+                    onChanged: (value) => themeProvider.setWidgetTheme(value),
+                  );
+                },
+              ),
+            if (Platform.isAndroid)
+              Consumer<ThemeProvider>(
+                builder: (context, themeProvider, child) {
+                  return ListTile(
+                    leading: const Icon(Icons.opacity),
+                    title: const Text('Widget Transparency'),
+                    subtitle: Text(
+                        '${(themeProvider.widgetTransparency * 100).round()}% opaque'),
+                    trailing: SizedBox(
+                      width: 200,
+                      child: Slider(
+                        value: themeProvider.widgetTransparency,
+                        min: 0.1,
+                        max: 1.0,
+                        divisions: 9,
+                        label:
+                            '${(themeProvider.widgetTransparency * 100).round()}%',
+                        onChanged: (value) =>
+                            themeProvider.setWidgetTransparency(value),
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
           ]),
 
           const Divider(),
@@ -144,42 +167,12 @@ class PreferencesScreen extends StatelessWidget {
 
           const Divider(),
 
-          _buildSection(context, title: 'Widget Health', children: [
-            const WidgetHealthTile(),
-          ]),
-
-          const Divider(),
-
-          _buildSection(context, title: 'Debug Info', children: [
-            Consumer<ThemeProvider>(
-              builder: (context, themeProvider, child) {
-                return ListTile(
-                  leading: const Icon(Icons.settings),
-                  title: const Text('Configured Storage Path'),
-                  subtitle: Text(themeProvider.getDisplayStoragePath()),
-                  isThreeLine: true,
-                );
-              },
-            ),
-            Consumer<DirectoryProvider>(
-              builder: (context, directoryProvider, child) {
-                return ListTile(
-                  leading: const Icon(Icons.info_outline),
-                  title: const Text('Actual Storage Path'),
-                  subtitle: Text(directoryProvider.getCurrentStoragePath()),
-                  isThreeLine: true,
-                );
-              },
-            ),
-          ]),
-
-          const Divider(),
-
-          _buildSection(context, title: 'Debug', children: [
-            const DebugToolsTiles(),
-          ]),
-
-          const Divider(),
+          if (Platform.isAndroid) ...[
+            _buildSection(context, title: 'Widget Health', children: [
+              const WidgetHealthTile(),
+            ]),
+            const Divider(),
+          ],
 
           _buildSection(context, title: 'About', children: [
             FutureBuilder<PackageInfo>(
@@ -194,6 +187,7 @@ class PreferencesScreen extends StatelessWidget {
                   leading: const Icon(Icons.info),
                   title: const Text('Version'),
                   subtitle: Text(versionString),
+                  onLongPress: _toggleDebugTools,
                 );
               },
             ),
@@ -205,6 +199,39 @@ class PreferencesScreen extends StatelessWidget {
               onTap: () => _showAboutDialog(context),
             ),
           ]),
+
+          if (_showDebugTools) ...[
+            const Divider(),
+
+            _buildSection(context, title: 'Debug Info', children: [
+              Consumer<ThemeProvider>(
+                builder: (context, themeProvider, child) {
+                  return ListTile(
+                    leading: const Icon(Icons.settings),
+                    title: const Text('Configured Storage Path'),
+                    subtitle: Text(themeProvider.getDisplayStoragePath()),
+                    isThreeLine: true,
+                  );
+                },
+              ),
+              Consumer<DirectoryProvider>(
+                builder: (context, directoryProvider, child) {
+                  return ListTile(
+                    leading: const Icon(Icons.info_outline),
+                    title: const Text('Actual Storage Path'),
+                    subtitle: Text(directoryProvider.getCurrentStoragePath()),
+                    isThreeLine: true,
+                  );
+                },
+              ),
+            ]),
+
+            const Divider(),
+
+            _buildSection(context, title: 'Debug', children: [
+              const DebugToolsTiles(),
+            ]),
+          ],
         ],
       ),
     );
