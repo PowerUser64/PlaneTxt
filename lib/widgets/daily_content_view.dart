@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:planetxt/models/calendar_event.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
+import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
+import 'package:provider/provider.dart';
 
 class DailyContentView extends StatelessWidget {
   final DailyFileProvider dailyFileProvider;
@@ -15,6 +17,8 @@ class DailyContentView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final logHeaderRegex =
+        context.select<ThemeProvider, String>((t) => t.logHeaderRegex);
     return Column(
       children: [
         CalendarEventsSection(
@@ -27,9 +31,17 @@ class DailyContentView extends StatelessWidget {
           dateString: dateString,
         ),
         const SizedBox(height: 12),
-        NotesSection(
-          dailyFileProvider: dailyFileProvider,
-          dateString: dateString,
+        _TextSection(
+          icon: Icons.history_edu,
+          title: 'Logs',
+          lines: dailyFileProvider.getLogs(dateString, logHeaderRegex),
+        ),
+        const SizedBox(height: 12),
+        _TextSection(
+          icon: Icons.notes,
+          title: 'Notes',
+          lines: dailyFileProvider.getNotes(dateString,
+              logHeaderRegex: logHeaderRegex),
         ),
       ],
     );
@@ -172,26 +184,27 @@ class _TaskRow extends StatelessWidget {
   }
 }
 
-class NotesSection extends StatelessWidget {
-  final DailyFileProvider dailyFileProvider;
-  final String dateString;
+/// Free-text lines of the day: the logs section, or the notes.
+class _TextSection extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final List<String> lines;
 
-  const NotesSection({
-    super.key,
-    required this.dailyFileProvider,
-    required this.dateString,
+  const _TextSection({
+    required this.icon,
+    required this.title,
+    required this.lines,
   });
 
   @override
   Widget build(BuildContext context) {
-    final notes = dailyFileProvider.getNotes(dateString);
-    if (notes.isEmpty) return const SizedBox.shrink();
+    if (lines.isEmpty) return const SizedBox.shrink();
 
     return _SectionContainer(
-      icon: Icons.notes,
-      title: 'Notes',
-      children: notes
-          .map((note) => Padding(
+      icon: icon,
+      title: title,
+      children: lines
+          .map((line) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -199,7 +212,7 @@ class NotesSection extends StatelessWidget {
                     _BulletDot(
                         color: Theme.of(context).colorScheme.primary),
                     Expanded(
-                      child: Text(note,
+                      child: Text(line,
                           style: Theme.of(context).textTheme.bodyMedium),
                     ),
                   ],

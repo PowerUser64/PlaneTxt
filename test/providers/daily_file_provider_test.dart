@@ -84,4 +84,20 @@ void main() {
       expect(daily('20261009').existsSync(), isFalse);
     });
   });
+  group('DailyFileProvider free text', () {
+    const logHeader = r'^#{1,2}\s+.*(Journal|Logs?)';
+
+    test('splits logs from notes and follows the pattern', () async {
+      daily('20261011')
+          .writeAsStringSync('# Logs\n- 08:10 run\n\n# Notes\nidea');
+      await provider.ensureDailyFileLoaded('20261011');
+
+      expect(provider.getLogs('20261011', logHeader), ['08:10 run']);
+      expect(provider.getNotes('20261011', logHeaderRegex: logHeader),
+          ['idea']);
+      // Another pattern (the user edited it): parsed again.
+      expect(provider.getNotes('20261011', logHeaderRegex: r'^# Nothing'),
+          ['08:10 run', 'idea']);
+    });
+  });
 }

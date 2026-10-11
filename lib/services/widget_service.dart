@@ -250,9 +250,9 @@ class WidgetService {
     for (final line in lines) {
       final trimmed = line.trim();
       final todoMatch =
-          RegExp(r'^-\s*\[\s*([x\s])\s*\]\s+(.+)$').firstMatch(trimmed);
+          RegExp(r'^-\s*\[\s*([xX\s])\s*\]\s+(.+)$').firstMatch(trimmed);
       if (todoMatch != null) {
-        final isCompleted = todoMatch.group(1) == 'x';
+        final isCompleted = todoMatch.group(1)!.toLowerCase() == 'x';
         final text = todoMatch.group(2)!.trim();
         if (text.isNotEmpty) {
           // Add visual indicator for completion status

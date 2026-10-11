@@ -142,4 +142,102 @@ free text line
           isEmpty);
     });
   });
+  group('uppercase X', () {
+    test('a todo checked with [X] is done', () {
+      final tasks = MarkdownParser.parseTasks('- [X] done\n- [ ] open');
+      expect(tasks.map((t) => t.isCompleted), [true, false]);
+      expect(MarkdownParser.isTodoLine('- [X] done'), isTrue);
+    });
+
+    test('a [X] todo stays out of the notes', () {
+      expect(MarkdownParser.parseNotes('- [X] done'), isEmpty);
+    });
+  });
+
+  group('MarkdownParser.parseTasks line index', () {
+    test('records the line of each task', () {
+      final tasks =
+          MarkdownParser.parseTasks('# Todos\r\n- [ ] a\r\ntext\r\n- [x] b');
+      expect(tasks.map((t) => t.line), [1, 3]);
+    });
+  });
+
+  group('event descriptions', () {
+    test('are not repeated in the notes', () {
+      const content = '''
+# Events
+- @10:00 review
+  bring the notes
+
+# Notes
+call the bank
+''';
+      expect(MarkdownParser.parseNotes(content), ['call the bank']);
+    });
+
+    test('stop at the next header', () {
+      const content = '# Events\n- @10:00 review\n# Todos\n- [ ] a';
+      final events = MarkdownParser.parseEvents('20261011', content);
+      expect(events.single.description, isEmpty);
+    });
+
+    test('keep every indented line, but at most 4 loose ones', () {
+      final indented = List.generate(6, (i) => '  line $i').join('\n');
+      final loose = List.generate(6, (i) => 'line $i').join('\n');
+
+      final long =
+          MarkdownParser.parseEvents('20261011', '- @10:00 a\n$indented');
+      final short = MarkdownParser.parseEvents('20261011', '- @10:00 a\n$loose');
+
+      expect(long.single.description.split('\n'), hasLength(6));
+      expect(short.single.description.split('\n'), hasLength(4));
+      expect(MarkdownParser.parseNotes('- @10:00 a\n$loose'),
+          ['line 4', 'line 5']);
+    });
+
+    test('eventBlockEnd points past the description', () {
+      final lines = ['- @10:00 a', '  desc', '- @11:00 b', '', 'text'];
+      expect(MarkdownParser.eventBlockEnd(lines, 0), 2);
+      expect(MarkdownParser.eventBlockEnd(lines, 2), 3);
+    });
+  });
+
+  group('MarkdownParser.parseFreeText', () {
+    const logHeader = r'^#{1,2}\s+.*(Journal|Logs?)';
+    const content = '''
+# 📅 Events
+- @09:30 Standup
+  room 4
+
+# ✅ Todos
+- [ ] book train
+
+# 📝 Logs
+- 08:10 morning run
+felt good
+
+# 🗒️ Notes
+idea: plain text
+''';
+
+    test('puts the logs section apart from the notes', () {
+      final text =
+          MarkdownParser.parseFreeText(content, logHeaderRegex: logHeader);
+      expect(text.logs, ['08:10 morning run', 'felt good']);
+      expect(text.notes, ['idea: plain text']);
+    });
+
+    test('without a logs pattern, everything is a note', () {
+      final text = MarkdownParser.parseFreeText(content);
+      expect(text.logs, isEmpty);
+      expect(text.notes,
+          ['08:10 morning run', 'felt good', 'idea: plain text']);
+    });
+
+    test('an invalid pattern falls back to notes only', () {
+      final text = MarkdownParser.parseFreeText(content, logHeaderRegex: '(');
+      expect(text.logs, isEmpty);
+      expect(text.notes, hasLength(3));
+    });
+  });
 }

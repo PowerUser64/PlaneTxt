@@ -10,12 +10,12 @@ class MarkdownParser {
   /// Matches the shape of a todo line (with or without text after `]`).
   /// Used for "is this line part of the tasks section" detection.
   static final RegExp todoLine =
-      RegExp(r'^\s*[-*+]\s*\[\s*[x\s]\s*\]');
+      RegExp(r'^\s*[-*+]\s*\[\s*[xX\s]\s*\]');
 
   /// Matches a todo line that has text. Group 1 is the checkbox content
-  /// (`x` or whitespace), group 2 is the task text.
+  /// (`x`, `X` or whitespace), group 2 is the task text.
   static final RegExp _todoLineWithText =
-      RegExp(r'^\s*[-*+]\s*\[\s*([x\s])\s*\]\s+(.+)$');
+      RegExp(r'^\s*[-*+]\s*\[\s*([xX\s])\s*\]\s+(.+)$');
 
   /// Matches an event line: bullet followed by `@HH:MM` (24h).
   /// Group 1 is hours (1-2 digits), group 2 is minutes (2 digits).
@@ -44,36 +44,56 @@ class MarkdownParser {
   /// Parse tasks from markdown content.
   static List<TaskItem> parseTasks(String content) {
     final tasks = <TaskItem>[];
-    for (final line in splitLines(content)) {
-      final m = _todoLineWithText.firstMatch(line);
+    final lines = splitLines(content);
+    for (var i = 0; i < lines.length; i++) {
+      final m = _todoLineWithText.firstMatch(lines[i]);
       if (m == null) continue;
       tasks.add(TaskItem(
         text: m.group(2)!.trim(),
-        isCompleted: m.group(1) == 'x',
+        isCompleted: m.group(1)!.toLowerCase() == 'x',
+        line: i,
       ));
     }
     return tasks;
   }
 
   /// Parse "free text" notes from markdown — everything that isn't a task,
-  /// an event, or a header. Bullet markers are stripped.
-  static List<String> parseNotes(String content) {
-    final notes = <String>[];
-    for (final line in splitLines(content)) {
-      final trimmed = line.trim();
-      if (trimmed.isEmpty) continue;
-      if (headerLine.hasMatch(trimmed)) continue;
-      if (isTodoLine(trimmed)) continue;
-      if (isEventLine(trimmed)) continue;
+  /// an event or its description, a header, or (with [logHeaderRegex]) a
+  /// line of the logs section. Bullet markers are stripped.
+  static List<String> parseNotes(String content, {String? logHeaderRegex}) =>
+      parseFreeText(content, logHeaderRegex: logHeaderRegex).notes;
 
-      if (_bulletLine.hasMatch(trimmed)) {
-        final clean = trimmed.replaceFirst(_bulletLine, '').trim();
-        if (clean.isNotEmpty) notes.add(clean);
+  /// Split the free text of [content] between the logs section - the one
+  /// under the first header matching [logHeaderRegex], up to the next
+  /// header - and the notes, i.e. everything else. Bullet markers are
+  /// stripped.
+  static ({List<String> notes, List<String> logs}) parseFreeText(
+    String content, {
+    String? logHeaderRegex,
+  }) {
+    final notes = <String>[];
+    final logs = <String>[];
+    final logHeader = _headerRegex(logHeaderRegex);
+    final lines = splitLines(content);
+    final kinds = _classify(lines);
+    var inLogs = false;
+    var logsSeen = false;
+    for (var i = 0; i < lines.length; i++) {
+      if (kinds[i] == _LineKind.header) {
+        // Only the first matching section holds the logs, as for inserts.
+        inLogs = !logsSeen && logHeader != null && logHeader.hasMatch(lines[i]);
+        logsSeen |= inLogs;
         continue;
       }
-      notes.add(trimmed);
+      if (kinds[i] != _LineKind.text) continue;
+      final trimmed = lines[i].trim();
+      final clean = _bulletLine.hasMatch(trimmed)
+          ? trimmed.replaceFirst(_bulletLine, '').trim()
+          : trimmed;
+      if (clean.isEmpty) continue;
+      (inLogs ? logs : notes).add(clean);
     }
-    return notes;
+    return (notes: notes, logs: logs);
   }
 
   /// Parse events from markdown content. Only lines shaped like
@@ -93,18 +113,25 @@ class MarkdownParser {
       return events;
     }
 
+    final kinds = _classify(lines);
     for (var i = 0; i < lines.length; i++) {
-      final m = eventLine.firstMatch(lines[i]);
-      if (m == null) continue;
+      if (kinds[i] != _LineKind.event) continue;
+      final m = eventLine.firstMatch(lines[i])!;
 
       try {
         final hour = int.parse(m.group(1)!);
         final minute = int.parse(m.group(2)!);
         final title = m.group(3)!.trim();
+        final description = [
+          for (var j = i + 1;
+              j < lines.length && kinds[j] == _LineKind.eventDescription;
+              j++)
+            lines[j].trim(),
+        ].join('\n');
         events.add(CalendarEvent(
           title: title,
           time: DateTime(year, month, day, hour, minute),
-          description: _extractEventDescription(lines, i),
+          description: description,
           date: date,
         ));
       } catch (e) {
@@ -114,25 +141,81 @@ class MarkdownParser {
     return events;
   }
 
-  /// Collect description lines that follow an event line.
-  /// Stops at: empty line, another event, a task, or after 4 lines.
-  static String _extractEventDescription(List<String> lines, int eventIdx) {
-    final buf = StringBuffer();
-    final maxLook = (eventIdx + 5).clamp(0, lines.length);
-    for (var i = eventIdx + 1; i < maxLook; i++) {
-      final line = lines[i].trim();
-      if (line.isEmpty) break;
-      if (isEventLine(line) || isTodoLine(line)) break;
-      if (buf.isNotEmpty) buf.write('\n');
-      buf.write(line);
+  /// Index just past the description of the event at [eventIndex] in
+  /// [lines]: where a line written after that event must go.
+  static int eventBlockEnd(List<String> lines, int eventIndex) {
+    final kinds = _classify(lines);
+    var end = eventIndex + 1;
+    while (end < lines.length && kinds[end] == _LineKind.eventDescription) {
+      end++;
     }
-    return buf.toString();
+    return end;
+  }
+
+  /// Lines after an event, indented no deeper than it, that still count as
+  /// its description. Deeper lines always do, however many: the ICS import
+  /// writes them.
+  static const int _maxLooseDescriptionLines = 4;
+
+  static int _indentOf(String line) => line.length - line.trimLeft().length;
+
+  /// What each of [lines] is. The lines after an event are its description
+  /// until a blank line, a header, a todo, another event, or a bullet at
+  /// the event's own level (a sibling item, not a description).
+  static List<_LineKind> _classify(List<String> lines) {
+    final kinds = List.filled(lines.length, _LineKind.text);
+    var descriptionLines = -1; // -1: not right after an event
+    var eventIndent = 0;
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final trimmed = line.trim();
+      final kind = trimmed.isEmpty
+          ? _LineKind.blank
+          : headerLine.hasMatch(trimmed)
+              ? _LineKind.header
+              : isTodoLine(trimmed)
+                  ? _LineKind.todo
+                  : isEventLine(trimmed)
+                      ? _LineKind.event
+                      : _LineKind.text;
+      if (kind == _LineKind.text && descriptionLines >= 0) {
+        final deeper = _indentOf(line) > eventIndent;
+        if (deeper ||
+            (!_bulletLine.hasMatch(trimmed) &&
+                descriptionLines < _maxLooseDescriptionLines)) {
+          kinds[i] = _LineKind.eventDescription;
+          descriptionLines++;
+          continue;
+        }
+      }
+      kinds[i] = kind;
+      descriptionLines = kind == _LineKind.event ? 0 : -1;
+      if (kind == _LineKind.event) eventIndent = _indentOf(line);
+    }
+    return kinds;
+  }
+
+  /// [pattern] compiled, or null when empty or invalid (it comes from the
+  /// user's settings).
+  static RegExp? _headerRegex(String? pattern) {
+    if (pattern == null || pattern.isEmpty) return null;
+    try {
+      return RegExp(pattern, multiLine: true);
+    } on FormatException catch (e) {
+      Log.w('MarkdownParser: invalid header pattern "$pattern"', error: e);
+      return null;
+    }
   }
 }
+
+enum _LineKind { blank, header, todo, event, eventDescription, text }
 
 class TaskItem {
   final String text;
   final bool isCompleted;
 
-  TaskItem({required this.text, required this.isCompleted});
+  /// Index of the task's line in the parsed content, -1 if unknown.
+  final int line;
+
+  TaskItem({required this.text, required this.isCompleted, this.line = -1});
 }

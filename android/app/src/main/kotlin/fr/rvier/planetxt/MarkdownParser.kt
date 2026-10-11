@@ -9,7 +9,7 @@ object MarkdownParser {
     private const val TAG = "MarkdownParser"
     
     private val EVENT_REGEX = Regex("""@(\d{1,2}):(\d{2})""")
-    private val TODO_REGEX = Regex("""^\s*[-*+]\s*\[\s*([x\s])\s*\]\s+(.+)$""")
+    private val TODO_REGEX = Regex("""^\s*[-*+]\s*\[\s*([xX\s])\s*\]\s+(.+)$""")
     
     private const val MAX_EVENTS = 3
     private const val MAX_TODOS = 5

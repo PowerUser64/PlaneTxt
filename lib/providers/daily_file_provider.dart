@@ -20,8 +20,11 @@ class _ParsedDaily {
   final int contentHash;
   final List<TaskItem> tasks;
   final List<CalendarEvent> events; // sorted by time
-  final List<String> notes;
-  _ParsedDaily(this.contentHash, this.tasks, this.events, this.notes);
+
+  /// Free text split with [logHeaderRegex], computed on first use.
+  String? logHeaderRegex;
+  ({List<String> notes, List<String> logs})? freeText;
+  _ParsedDaily(this.contentHash, this.tasks, this.events);
 }
 
 class DailyFileProvider extends ChangeNotifier {
@@ -104,8 +107,7 @@ class DailyFileProvider extends ChangeNotifier {
     final tasks = MarkdownParser.parseTasks(file.content);
     final events = MarkdownParser.parseEvents(date, file.content)
       ..sort((a, b) => a.time.compareTo(b.time));
-    final notes = MarkdownParser.parseNotes(file.content);
-    final parsed = _ParsedDaily(hash, tasks, events, notes);
+    final parsed = _ParsedDaily(hash, tasks, events);
     _parseCache[date] = parsed;
     return parsed;
   }
@@ -494,8 +496,27 @@ class DailyFileProvider extends ChangeNotifier {
   /// Memoised tasks for a date — cheap to call from build methods.
   List<TaskItem> getTasks(String date) => _getParsed(date)?.tasks ?? const [];
 
-  /// Memoised free-text notes for a date — cheap to call from build methods.
-  List<String> getNotes(String date) => _getParsed(date)?.notes ?? const [];
+  /// Memoised free-text notes for a date, without the lines of the logs
+  /// section ([logHeaderRegex]) - cheap to call from build methods.
+  List<String> getNotes(String date, {String? logHeaderRegex}) =>
+      _getFreeText(date, logHeaderRegex)?.notes ?? const [];
+
+  /// Memoised lines of the logs section ([logHeaderRegex]) for a date.
+  List<String> getLogs(String date, String logHeaderRegex) =>
+      _getFreeText(date, logHeaderRegex)?.logs ?? const [];
+
+  ({List<String> notes, List<String> logs})? _getFreeText(
+      String date, String? logHeaderRegex) {
+    final parsed = _getParsed(date);
+    if (parsed == null) return null;
+    if (parsed.freeText == null || parsed.logHeaderRegex != logHeaderRegex) {
+      parsed
+        ..logHeaderRegex = logHeaderRegex
+        ..freeText = MarkdownParser.parseFreeText(_byDate[date]!.content,
+            logHeaderRegex: logHeaderRegex);
+    }
+    return parsed.freeText;
+  }
 
   List<CalendarEvent> getCalendarEvents(String date) =>
       _getParsed(date)?.events ?? const [];
