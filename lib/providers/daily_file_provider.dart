@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:planetxt/models/calendar_event.dart';
 import 'package:planetxt/models/daily_file.dart';
+import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/repositories/daily_repository.dart';
 import 'package:planetxt/services/file_monitor_service.dart';
 import 'package:planetxt/services/notification_service.dart';
 import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/services/widget_service.dart';
 import 'package:planetxt/utils/daily_content_helper.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
 
@@ -305,11 +307,15 @@ class DailyFileProvider extends ChangeNotifier {
     );
   }
 
+  /// With [expected], the save fails with [FileConflictException] when the
+  /// file changed on disk since the caller read it.
   Future<void> saveDailyFile(
-      BuildContext context, String date, String content) async {
+      BuildContext context, String date, String content,
+      {ExpectedContent? expected}) async {
     try {
       Log.d('📅 DailyFileProvider: Saving daily file for $date');
-      final dailyFile = await _dailyRepository.create(date, content);
+      final dailyFile =
+          await _dailyRepository.create(date, content, expected: expected);
 
       _upsertFile(dailyFile);
 
@@ -333,6 +339,31 @@ class DailyFileProvider extends ChangeNotifier {
     } catch (e) {
       Log.e('❌ DailyFileProvider: Error saving daily file', error: e);
       rethrow;
+    }
+  }
+
+  /// Read the day's file from disk, apply [edit] and save the result,
+  /// checked against what was read. If another app or a sync tool writes
+  /// the file in between, [edit] is re-applied to that newer content
+  /// instead of overwriting it. [template] seeds a day without a file.
+  Future<void> updateDailyFile(
+    BuildContext context,
+    String date,
+    String Function(String content) edit, {
+    required String template,
+  }) async {
+    const maxAttempts = 3;
+    for (var attempt = 1;; attempt++) {
+      final current = await getDailyFile(date);
+      try {
+        if (!context.mounted) return;
+        await saveDailyFile(context, date, edit(current?.content ?? template),
+            expected: ExpectedContent(current?.content));
+        return;
+      } on FileConflictException {
+        if (attempt >= maxAttempts) rethrow;
+        Log.w('⚠️ DailyFileProvider: $date changed while editing, retrying');
+      }
     }
   }
 
@@ -390,6 +421,13 @@ class DailyFileProvider extends ChangeNotifier {
         notifyListeners();
       }
       return fromDisk;
+    }
+    // Deleted on disk: drop the stale in-memory copy too, so nothing edits
+    // or displays a file that no longer exists.
+    if (_byDate.remove(date) != null) {
+      _parseCache.remove(date);
+      _dailyFiles = _dailyFiles.where((f) => f.date != date).toList();
+      notifyListeners();
     }
     return null;
   }

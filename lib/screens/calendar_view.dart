@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:planetxt/models/daily_file.dart';
+import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
+import 'package:planetxt/providers/note_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/utils/daily_content_helper.dart';
 import 'package:planetxt/utils/logger.dart';
@@ -157,6 +159,16 @@ class _CalendarViewState extends State<CalendarView> {
     }));
   }
 
+  void _showSaveError(BuildContext context, Object error) {
+    Log.e('❌ CalendarView: Cannot save daily file', error: error);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Could not save: $error'),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
+    );
+  }
+
   /// The day's file exists but could not be read: say so, and never fall
   /// back to the template - its first save would overwrite the real file.
   void _showReadError(BuildContext context, Object error) {
@@ -176,35 +188,39 @@ class _CalendarViewState extends State<CalendarView> {
 
     final dateString = _formatDate(_selectedDay!);
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    final DailyFile? dailyFile;
+    // Fail early on an unreadable file, before the user types anything.
     try {
-      dailyFile = await dailyFileProvider.ensureDailyFileLoaded(dateString);
+      await dailyFileProvider.ensureDailyFileLoaded(dateString);
     } catch (e) {
       if (context.mounted) _showReadError(context, e);
       return;
     }
-    final currentContent = dailyFile?.content ?? themeProvider.dailyTemplate;
 
     if (!context.mounted) return;
 
     showDialog(
       context: context,
-      builder: (context) => QuickAddModal(
+      // The saves below use the view's context: the dialog's own one
+      // unmounts as soon as it pops.
+      builder: (dialogContext) => QuickAddModal(
         selectedDate: _selectedDay!,
         onAdd: (content, type) {
-          String newContent;
-          switch (type) {
-            case QuickAddType.event:
-              newContent = DailyContentHelper.insertAfterLastEvent(
-                  currentContent, content, themeProvider.eventHeaderRegex);
-            case QuickAddType.todo:
-              newContent = DailyContentHelper.insertAfterLastTodo(
-                  currentContent, content, themeProvider.todoHeaderRegex);
-            case QuickAddType.log:
-              newContent = DailyContentHelper.insertAtEndOfSection(
-                  currentContent, content, themeProvider.logHeaderRegex);
-          }
-          dailyFileProvider.saveDailyFile(context, dateString, newContent);
+          String insert(String current) => switch (type) {
+                QuickAddType.event => DailyContentHelper.insertAfterLastEvent(
+                    current, content, themeProvider.eventHeaderRegex),
+                QuickAddType.todo => DailyContentHelper.insertAfterLastTodo(
+                    current, content, themeProvider.todoHeaderRegex),
+                QuickAddType.log => DailyContentHelper.insertAtEndOfSection(
+                    current, content, themeProvider.logHeaderRegex),
+              };
+          // Applied to the file as it is when saving, not as it was when
+          // the dialog opened: a sync landing meanwhile is kept.
+          dailyFileProvider
+              .updateDailyFile(context, dateString, insert,
+                  template: themeProvider.dailyTemplate)
+              .catchError((Object e) {
+            if (context.mounted) _showSaveError(context, e);
+          });
         },
       ),
     );
@@ -225,15 +241,31 @@ class _CalendarViewState extends State<CalendarView> {
     final initialContent = fresh?.content ?? themeProvider.dailyTemplate;
 
     if (!context.mounted) return;
+    final noteFileProvider = context.read<NoteFileProvider>();
+    Future<void> save(String content, ExpectedContent expected) =>
+        dailyFileProvider.saveDailyFile(context, dateString, content,
+            expected: expected);
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => DailyEditorFullscreen(
-          date: dateString,
-          initialContent: initialContent,
-          onSave: (content) =>
-              dailyFileProvider.saveDailyFile(context, dateString, content),
-          onAutoSave: (content) =>
-              dailyFileProvider.saveDailyFile(context, dateString, content),
+        // Rebuilt with the file's latest known content, so the editor can
+        // reload after an external change.
+        builder: (context) => Selector<DailyFileProvider, String?>(
+          selector: (_, provider) =>
+              provider.getDailyFileFromCache(dateString)?.content,
+          builder: (context, diskContent, _) => DailyEditorFullscreen(
+            date: dateString,
+            initialContent: initialContent,
+            diskContent: diskContent,
+            onSave: save,
+            onAutoSave: save,
+            // Kept as a note: notes can be opened in the app, so the user
+            // can merge the lost lines back.
+            onSaveCopy: (content) => noteFileProvider.saveConflictCopy(
+              folder: 'conflicts',
+              baseName: 'daily $dateString',
+              content: content,
+            ),
+          ),
         ),
       ),
     );

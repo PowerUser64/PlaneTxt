@@ -1,26 +1,61 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:planetxt/models/expected_content.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/widgets/markdown_editor.dart';
 
+/// One save the editor attempted: the text and the base it was checked
+/// against.
+typedef SaveCall = ({String content, String? expected});
+
 void main() {
-  late List<String> autoSaves;
+  late List<SaveCall> saves;
+  late List<String> copies;
+  late ValueNotifier<String?> disk;
+
+  /// When set, the next save fails with a conflict: the file now holds this.
+  String? conflictWith;
+  bool conflictDeleted = false;
 
   setUp(() {
-    autoSaves = [];
+    saves = [];
+    copies = [];
+    disk = ValueNotifier<String?>('');
+    conflictWith = null;
+    conflictDeleted = false;
   });
 
-  Widget editor() {
+  Future<void> save(String content, ExpectedContent expected) async {
+    saves.add((content: content, expected: expected.content));
+    if (conflictWith != null || conflictDeleted) {
+      final theirs = conflictDeleted ? null : conflictWith;
+      conflictWith = null;
+      conflictDeleted = false;
+      throw FileConflictException('changed', diskContent: theirs);
+    }
+  }
+
+  Widget editor({String initial = ''}) {
+    disk.value = initial;
     return MaterialApp(
-      home: MarkdownEditor(
-        initialContent: '',
-        onSave: (_) async {},
-        onAutoSave: (content) async => autoSaves.add(content),
-        title: 'Test',
-        hintText: '',
-        mode: EditorMode.fullscreen,
+      home: ValueListenableBuilder<String?>(
+        valueListenable: disk,
+        builder: (context, diskContent, _) => MarkdownEditor(
+          initialContent: initial,
+          diskContent: diskContent,
+          onSave: save,
+          onAutoSave: save,
+          onSaveCopy: (content) async => copies.add(content),
+          title: 'Test',
+          hintText: '',
+          mode: EditorMode.fullscreen,
+        ),
       ),
     );
   }
+
+  String editorText(WidgetTester tester) =>
+      tester.widget<TextField>(find.byType(TextField)).controller!.text;
 
   group('MarkdownEditor autosave', () {
     testWidgets('saves pending text when closed before the debounce',
@@ -33,7 +68,7 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
 
-      expect(autoSaves, ['last words']);
+      expect(saves.map((s) => s.content), ['last words']);
     });
 
     testWidgets('does not save again on close when nothing is pending',
@@ -45,7 +80,7 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
 
-      expect(autoSaves, ['saved already']);
+      expect(saves.map((s) => s.content), ['saved already']);
     });
 
     testWidgets('saves pending text when the app goes to the background',
@@ -58,7 +93,121 @@ void main() {
           .handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       await tester.pump();
 
-      expect(autoSaves, ['before pause']);
+      expect(saves.map((s) => s.content), ['before pause']);
+    });
+  });
+
+  group('MarkdownEditor conflict detection', () {
+    testWidgets('checks each save against the previous one', (tester) async {
+      await tester.pumpWidget(editor(initial: 'v1'));
+
+      await tester.enterText(find.byType(TextField), 'v2');
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.enterText(find.byType(TextField), 'v3');
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(saves, [
+        (content: 'v2', expected: 'v1'),
+        (content: 'v3', expected: 'v2'),
+      ]);
+    });
+
+    testWidgets('reloads an external change when nothing is pending',
+        (tester) async {
+      await tester.pumpWidget(editor(initial: 'mine'));
+
+      disk.value = 'changed by Syncthing';
+      await tester.pump();
+
+      expect(editorText(tester), 'changed by Syncthing');
+      expect(saves, isEmpty);
+
+      // The next save builds on the reloaded content.
+      await tester.enterText(find.byType(TextField), 'edited after reload');
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(saves.single.expected, 'changed by Syncthing');
+    });
+
+    testWidgets('keeps local typing over an external change', (tester) async {
+      await tester.pumpWidget(editor(initial: 'v1'));
+      await tester.enterText(find.byType(TextField), 'typing');
+
+      disk.value = 'changed by Syncthing';
+      conflictWith = 'changed by Syncthing'; // what the repository will see
+      await tester.pump();
+
+      expect(editorText(tester), 'typing');
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(saves.single, (content: 'typing', expected: 'v1'));
+      expect(find.text('File changed outside PlaneTxt'), findsOneWidget);
+    });
+
+    testWidgets('"Load theirs" replaces the text with the disk version',
+        (tester) async {
+      await tester.pumpWidget(editor(initial: 'v1'));
+      conflictWith = 'theirs';
+      await tester.enterText(find.byType(TextField), 'mine');
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(find.text('File changed outside PlaneTxt'), findsOneWidget);
+      await tester.tap(find.text('Load theirs'));
+      await tester.pumpAndSettle();
+
+      expect(editorText(tester), 'theirs');
+      expect(copies, isEmpty);
+    });
+
+    testWidgets('"Keep mine" overwrites, checked against their version',
+        (tester) async {
+      await tester.pumpWidget(editor(initial: 'v1'));
+      conflictWith = 'theirs';
+      await tester.enterText(find.byType(TextField), 'mine');
+      await tester.pump(const Duration(milliseconds: 600));
+
+      await tester.tap(find.text('Keep mine'));
+      await tester.pumpAndSettle();
+
+      expect(saves.last, (content: 'mine', expected: 'theirs'));
+      expect(editorText(tester), 'mine');
+    });
+
+    testWidgets('"Keep both" saves a copy, then loads their version',
+        (tester) async {
+      await tester.pumpWidget(editor(initial: 'v1'));
+      conflictWith = 'theirs';
+      await tester.enterText(find.byType(TextField), 'mine');
+      await tester.pump(const Duration(milliseconds: 600));
+
+      await tester.tap(find.text('Keep both'));
+      await tester.pumpAndSettle();
+
+      expect(copies, ['mine']);
+      expect(editorText(tester), 'theirs');
+    });
+
+    testWidgets('a file deleted meanwhile can be recreated', (tester) async {
+      await tester.pumpWidget(editor(initial: 'v1'));
+      conflictDeleted = true;
+      await tester.enterText(find.byType(TextField), 'mine');
+      await tester.pump(const Duration(milliseconds: 600));
+
+      await tester.tap(find.text('Recreate with mine'));
+      await tester.pumpAndSettle();
+
+      expect(saves.last, (content: 'mine', expected: null));
+    });
+
+    testWidgets('a conflict found while closing keeps a copy',
+        (tester) async {
+      await tester.pumpWidget(editor(initial: 'v1'));
+      conflictWith = 'theirs';
+      await tester.enterText(find.byType(TextField), 'mine');
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+
+      expect(copies, ['mine']);
     });
   });
 }

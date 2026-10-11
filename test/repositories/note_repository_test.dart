@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/repositories/note_repository.dart';
 import 'package:planetxt/services/file_store/io_file_store.dart';
 import 'package:planetxt/services/storage_service.dart';
@@ -50,6 +51,29 @@ void main() {
         throwsA(isA<FileAlreadyExistsException>()),
       );
       expect(noteFile('work/Plan.md').readAsStringSync(), 'keep me');
+    });
+  });
+
+  group('NoteRepository conflict detection', () {
+    test('loadByRelativePath returns what is on disk', () async {
+      await repository.create('Plan.md', 'v1');
+      noteFile('Plan.md').writeAsStringSync('edited elsewhere');
+
+      final fresh = await repository.loadByRelativePath('Plan.md');
+      expect(fresh!.content, 'edited elsewhere');
+      expect(await repository.loadByRelativePath('Missing.md'), isNull);
+    });
+
+    test('a save refuses to overwrite an external change', () async {
+      await repository.create('Plan.md', 'v1');
+      noteFile('Plan.md').writeAsStringSync('edited elsewhere');
+
+      await expectLater(
+        repository.create('Plan.md', 'mine',
+            expected: const ExpectedContent('v1')),
+        throwsA(isA<FileConflictException>()),
+      );
+      expect(noteFile('Plan.md').readAsStringSync(), 'edited elsewhere');
     });
   });
 }

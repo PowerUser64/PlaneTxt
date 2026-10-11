@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:planetxt/models/expected_content.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
 
 enum EditorMode {
@@ -9,10 +11,24 @@ enum EditorMode {
   fullscreen, // For full-screen editing (like NoteEditor, DailyEditorFullscreen)
 }
 
+/// Saves [content], checked against [expected]: what the editor last knew
+/// to be on disk. Throws [FileConflictException] when the file changed.
+typedef EditorSave = Future<void> Function(
+    String content, ExpectedContent expected);
+
 class MarkdownEditor extends StatefulWidget {
   final String initialContent;
-  final Future<void> Function(String) onSave;
-  final Future<void> Function(String)? onAutoSave;
+
+  /// The file's content on disk (`null`: no file yet). Saves are checked
+  /// against it; when it changes while nothing local is pending, the
+  /// editor reloads.
+  final String? diskContent;
+  final EditorSave onSave;
+  final EditorSave? onAutoSave;
+
+  /// Keeps the editor's text as a separate file when it loses a conflict
+  /// ("Keep both", or a conflict found while the editor closes).
+  final Future<void> Function(String content)? onSaveCopy;
   final String title;
   final String hintText;
   final EditorMode mode;
@@ -25,8 +41,10 @@ class MarkdownEditor extends StatefulWidget {
   const MarkdownEditor({
     super.key,
     required this.initialContent,
+    required this.diskContent,
     required this.onSave,
     this.onAutoSave,
+    this.onSaveCopy,
     required this.title,
     required this.hintText,
     this.mode = EditorMode.embedded,
@@ -41,6 +59,8 @@ class MarkdownEditor extends StatefulWidget {
   State<MarkdownEditor> createState() => MarkdownEditorState();
 }
 
+enum _ConflictChoice { keepMine, loadTheirs, keepBoth }
+
 class MarkdownEditorState extends State<MarkdownEditor>
     with WidgetsBindingObserver {
   late TextEditingController _controller;
@@ -51,13 +71,39 @@ class MarkdownEditorState extends State<MarkdownEditor>
   bool _saving = false;
   Future<void> _lastWrite = Future.value();
 
+  /// What the file holds on disk as far as the editor knows (`null`: no
+  /// file). Every save is checked against it, then moves it forward.
+  String? _base;
+  bool _conflictPending = false;
+  bool _applyingExternal = false;
+
   @override
   void initState() {
     super.initState();
     _savedContent = widget.initialContent;
+    _base = widget.diskContent;
     _controller = TextEditingController(text: widget.initialContent);
     _controller.addListener(_onTextChanged);
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didUpdateWidget(covariant MarkdownEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final disk = widget.diskContent;
+    if (disk == oldWidget.diskContent || disk == _base) return;
+    if (disk != null && disk == _savedContent) {
+      _base = disk; // our own save, echoed back by the provider
+      return;
+    }
+    // Changed outside the editor. Reload if nothing local is pending;
+    // otherwise the next save detects the conflict and asks.
+    final pending = _controller.text != _savedContent ||
+        (_autoSaveTimer?.isActive ?? false) ||
+        _conflictPending;
+    if (pending) return;
+    _base = disk;
+    _replaceText(disk ?? '');
   }
 
   @override
@@ -86,7 +132,29 @@ class MarkdownEditorState extends State<MarkdownEditor>
     return next;
   }
 
+  /// Write [content] checked against [_base], which then moves to it. The
+  /// base is read when the write runs, not when it is queued.
+  Future<void> _write(EditorSave save, String content) =>
+      _serialized(() async {
+        await save(content, ExpectedContent(_base));
+        _base = content;
+      });
+
+  /// Show [text] as the saved state, without triggering an autosave.
+  void _replaceText(String text) {
+    final offset = _controller.selection.baseOffset.clamp(0, text.length);
+    _applyingExternal = true;
+    _controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: offset),
+    );
+    _applyingExternal = false;
+    _savedContent = text;
+    _hasChanges = false;
+  }
+
   void _onTextChanged() {
+    if (_applyingExternal) return;
     setState(() {
       _hasChanges = _controller.text != _savedContent;
     });
@@ -99,31 +167,92 @@ class MarkdownEditorState extends State<MarkdownEditor>
   }
 
   Future<void> _autoSave() async {
-    if (widget.onAutoSave == null || !_hasChanges) return;
-    final content = _controller.text;
+    final onAutoSave = widget.onAutoSave;
+    if (onAutoSave == null || !_hasChanges || _conflictPending) return;
+    await _persist(onAutoSave, _controller.text, isAutoSave: true);
+  }
+
+  /// Save [content]; returns whether it reached the disk. A conflict asks
+  /// the user what to keep instead of overwriting the other version.
+  Future<bool> _persist(
+    EditorSave save,
+    String content, {
+    required bool isAutoSave,
+  }) async {
     try {
-      await _serialized(() => widget.onAutoSave!(content));
+      await _write(save, content);
+    } on FileConflictException catch (e) {
+      if (mounted) await _resolveConflict(e.diskContent);
+      return false;
     } catch (e) {
       // Keep _hasChanges true so the Save button stays visible and the
       // content isn't considered persisted.
-      if (mounted && !_autoSaveErrorShown) {
-        _autoSaveErrorShown = true;
+      if (mounted && !(isAutoSave && _autoSaveErrorShown)) {
+        if (isAutoSave) _autoSaveErrorShown = true;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Autosave failed: $e'),
+            content: Text('${isAutoSave ? 'Autosave' : 'Save'} failed: $e'),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
-      return;
+      return false;
     }
-    _autoSaveErrorShown = false;
-    if (!mounted) return;
+    if (isAutoSave) _autoSaveErrorShown = false;
+    if (!mounted) return true;
     setState(() {
       _savedContent = content;
       // The user may have kept typing while the save was in flight.
       _hasChanges = _controller.text != _savedContent;
     });
+    return true;
+  }
+
+  /// The file changed on disk since the editor last saw it ([theirs] is
+  /// its new content, `null` if deleted). Ask which version to keep.
+  Future<void> _resolveConflict(String? theirs) async {
+    if (_conflictPending) return; // already asking; it uses the latest text
+    _conflictPending = true;
+    _autoSaveTimer?.cancel();
+    final choice = await showDialog<_ConflictChoice>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _ConflictDialog(
+        deleted: theirs == null,
+        canKeepBoth: widget.onSaveCopy != null,
+      ),
+    );
+    _conflictPending = false;
+    if (!mounted || choice == null) return; // undecided: ask again on save
+
+    final mine = _controller.text;
+    switch (choice) {
+      case _ConflictChoice.keepMine:
+        _base = theirs; // overwrite what is there now, knowingly
+        await _persist(widget.onAutoSave ?? widget.onSave, mine,
+            isAutoSave: false);
+      case _ConflictChoice.keepBoth:
+        try {
+          await widget.onSaveCopy!(mine);
+        } catch (e) {
+          Log.e('❌ MarkdownEditor: Could not save conflict copy', error: e);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Could not save your version: $e'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ));
+          }
+          return; // keep the text in the editor rather than lose it
+        }
+        if (mounted) setState(() => _loadTheirs(theirs));
+      case _ConflictChoice.loadTheirs:
+        setState(() => _loadTheirs(theirs));
+    }
+  }
+
+  void _loadTheirs(String? theirs) {
+    _base = theirs;
+    _replaceText(theirs ?? '');
   }
 
   @override
@@ -131,12 +260,23 @@ class MarkdownEditorState extends State<MarkdownEditor>
     WidgetsBinding.instance.removeObserver(this);
     _autoSaveTimer?.cancel();
     final onAutoSave = widget.onAutoSave;
+    final onSaveCopy = widget.onSaveCopy;
     final content = _controller.text;
     if (onAutoSave != null && content != _savedContent) {
       // Leaving right after typing (back gesture, app switch): the debounced
       // autosave will never run, so persist the last keystrokes now.
-      unawaited(_serialized(() => onAutoSave(content)).catchError((Object e) {
-        Log.e('❌ MarkdownEditor: Save on close failed', error: e);
+      unawaited(_write(onAutoSave, content).catchError((Object e) async {
+        if (e is FileConflictException && onSaveCopy != null) {
+          // Nobody left to ask: keep this version as a copy.
+          try {
+            await onSaveCopy(content);
+          } catch (copyError) {
+            Log.e('❌ MarkdownEditor: Could not save conflict copy',
+                error: copyError);
+          }
+        } else {
+          Log.e('❌ MarkdownEditor: Save on close failed', error: e);
+        }
       }));
     }
     _controller.dispose();
@@ -286,27 +426,14 @@ class MarkdownEditorState extends State<MarkdownEditor>
   Future<void> _saveContent() async {
     if (_saving) return;
     _saving = true;
-    final content = _controller.text;
+    final bool saved;
     try {
-      await _serialized(() => widget.onSave(content));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Save failed: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-      return;
+      saved = await _persist(widget.onSave, _controller.text,
+          isAutoSave: false);
     } finally {
       _saving = false;
     }
-    if (!mounted) return;
-    setState(() {
-      _savedContent = content;
-      _hasChanges = _controller.text != _savedContent;
-    });
+    if (!saved || !mounted) return;
     if (widget.mode == EditorMode.fullscreen) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(widget.saveSuccessMessage ?? 'Content saved')),
@@ -548,5 +675,44 @@ class _MarkdownInputFormatter extends TextInputFormatter {
     }
 
     return newValue;
+  }
+}
+
+class _ConflictDialog extends StatelessWidget {
+  final bool deleted;
+  final bool canKeepBoth;
+
+  const _ConflictDialog({required this.deleted, required this.canKeepBoth});
+
+  @override
+  Widget build(BuildContext context) {
+    final what = deleted
+        ? 'Another app or a sync tool deleted this file while you were '
+            'editing it.'
+        : 'Another app or a sync tool changed this file while you were '
+            'editing it.';
+    return AlertDialog(
+      title: const Text('File changed outside PlaneTxt'),
+      content: Text(canKeepBoth
+          ? '$what\n\n"Keep both" saves your version as a separate note.'
+          : what),
+      actions: [
+        TextButton(
+          onPressed: () =>
+              Navigator.of(context).pop(_ConflictChoice.loadTheirs),
+          child: Text(deleted ? 'Discard mine' : 'Load theirs'),
+        ),
+        if (canKeepBoth)
+          TextButton(
+            onPressed: () =>
+                Navigator.of(context).pop(_ConflictChoice.keepBoth),
+            child: const Text('Keep both'),
+          ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_ConflictChoice.keepMine),
+          child: Text(deleted ? 'Recreate with mine' : 'Keep mine'),
+        ),
+      ],
+    );
   }
 }

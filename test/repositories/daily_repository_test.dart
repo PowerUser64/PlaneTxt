@@ -1,9 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:planetxt/models/daily_file.dart';
+import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/repositories/daily_repository.dart';
 import 'package:planetxt/services/file_store/io_file_store.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/exceptions.dart';
 
 void main() {
   late Directory tempDir;
@@ -58,6 +61,64 @@ void main() {
       final files = await repository.loadIncremental();
 
       expect(files.single.content, '- [ ] fixed');
+    });
+  });
+
+  group('DailyRepository.save with an expected content', () {
+    DailyFile file(String content) => DailyFile(
+        path: StorageService.dailyPath('20261011'),
+        date: '20261011',
+        content: content);
+
+    test('successive saves build on each other', () async {
+      await repository.save(file('v1'), expected: const ExpectedContent(null));
+      await repository.save(file('v2'), expected: const ExpectedContent('v1'));
+      expect(daily('20261011').readAsStringSync(), 'v2');
+    });
+
+    test('refuses to overwrite an external change', () async {
+      await repository.save(file('v1'), expected: const ExpectedContent(null));
+      daily('20261011').writeAsStringSync('from the PC');
+
+      await expectLater(
+        repository.save(file('mine'), expected: const ExpectedContent('v1')),
+        throwsA(isA<FileConflictException>()
+            .having((e) => e.diskContent, 'diskContent', 'from the PC')),
+      );
+      expect(daily('20261011').readAsStringSync(), 'from the PC');
+    });
+
+    test('detects a synced change carrying an older mtime', () async {
+      await repository.save(file('v1'), expected: const ExpectedContent(null));
+      final ourWrite = daily('20261011').lastModifiedSync();
+      daily('20261011')
+        ..writeAsStringSync('edited on the PC earlier')
+        ..setLastModifiedSync(ourWrite.subtract(const Duration(hours: 1)));
+
+      await expectLater(
+        repository.save(file('mine'), expected: const ExpectedContent('v1')),
+        throwsA(isA<FileConflictException>()),
+      );
+    });
+
+    test('refuses to create over a file that appeared meanwhile', () async {
+      daily('20261011').writeAsStringSync('created elsewhere');
+
+      await expectLater(
+        repository.save(file('mine'), expected: const ExpectedContent(null)),
+        throwsA(isA<FileConflictException>()),
+      );
+    });
+
+    test('reports a file deleted meanwhile', () async {
+      await repository.save(file('v1'), expected: const ExpectedContent(null));
+      daily('20261011').deleteSync();
+
+      await expectLater(
+        repository.save(file('mine'), expected: const ExpectedContent('v1')),
+        throwsA(isA<FileConflictException>()
+            .having((e) => e.diskContent, 'diskContent', isNull)),
+      );
     });
   });
 }

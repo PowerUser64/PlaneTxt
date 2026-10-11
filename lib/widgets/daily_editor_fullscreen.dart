@@ -4,15 +4,19 @@ import 'package:planetxt/widgets/markdown_editor.dart';
 class DailyEditorFullscreen extends StatefulWidget {
   final String date;
   final String initialContent;
-  final Future<void> Function(String) onSave;
-  final Future<void> Function(String)? onAutoSave;
+  final String? diskContent;
+  final EditorSave onSave;
+  final EditorSave? onAutoSave;
+  final Future<void> Function(String content)? onSaveCopy;
 
   const DailyEditorFullscreen({
     super.key,
     required this.date,
     required this.initialContent,
+    required this.diskContent,
     required this.onSave,
     this.onAutoSave,
+    this.onSaveCopy,
   });
 
   @override
@@ -24,8 +28,10 @@ class DailyEditorFullscreenState extends State<DailyEditorFullscreen> {
   Widget build(BuildContext context) {
     return MarkdownEditor(
       initialContent: widget.initialContent,
+      diskContent: widget.diskContent,
       onSave: widget.onSave,
       onAutoSave: widget.onAutoSave,
+      onSaveCopy: widget.onSaveCopy,
       title: 'Daily Notes - ${_formatDate(widget.date)}',
       hintText:
           'Write your daily notes here...\\n\\nYou can use Markdown syntax:\\n# Header\\n**bold** *italic*\\n- bullet list\\n1. numbered list\\n[ ] todo item',

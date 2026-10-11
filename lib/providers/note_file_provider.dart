@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/models/note_file.dart';
 import 'package:planetxt/repositories/note_repository.dart';
 import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/services/widget_service.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
 
 class NoteFileProvider extends ChangeNotifier {
@@ -25,6 +27,14 @@ class NoteFileProvider extends ChangeNotifier {
   }
 
   List<NoteFile> get noteFiles => List.unmodifiable(_noteFiles);
+
+  /// The loaded note at [relativePath], if any.
+  NoteFile? noteByPath(String relativePath) {
+    for (final note in _noteFiles) {
+      if (note.relativePath == relativePath) return note;
+    }
+    return null;
+  }
 
   // First full scan reads every note file (slow on large folders and SAF
   // trees) - exposed so the UI can show a "building cache" indicator.
@@ -97,10 +107,14 @@ class NoteFileProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> saveNoteFile(String relativePath, String content) async {
+  /// With [expected], the save fails with [FileConflictException] when the
+  /// file changed on disk since the caller read it.
+  Future<void> saveNoteFile(String relativePath, String content,
+      {ExpectedContent? expected}) async {
     try {
       Log.d('📝 NoteFileProvider: Saving note file $relativePath');
-      final saved = await _noteRepository.create(relativePath, content);
+      final saved = await _noteRepository.create(relativePath, content,
+          expected: expected);
       _onNoteWritten(saved);
       Log.d('📝 NoteFileProvider: Saved note file $relativePath');
     } catch (e) {
@@ -120,6 +134,55 @@ class NoteFileProvider extends ChangeNotifier {
     } catch (e) {
       Log.e('❌ NoteFileProvider: Error creating note file', error: e);
       rethrow;
+    }
+  }
+
+  /// Re-read one note from disk before editing it - the list may hold a
+  /// version older than the file. Returns `null` when the note is gone.
+  Future<NoteFile?> reloadNote(String relativePath) async {
+    final fresh = await _noteRepository.loadByRelativePath(relativePath);
+    final index = _noteFiles.indexWhere((n) => n.relativePath == relativePath);
+    if (fresh == null) {
+      if (index != -1) {
+        _noteFiles = [..._noteFiles]..removeAt(index);
+        notifyListeners();
+      }
+    } else if (index == -1 || _noteFiles[index].content != fresh.content) {
+      _noteFiles = [..._noteFiles];
+      if (index == -1) {
+        _noteFiles.insert(0, fresh);
+      } else {
+        _noteFiles[index] = fresh;
+      }
+      notifyListeners();
+    }
+    return fresh;
+  }
+
+  /// Save [content] as a new note next to the others, named after
+  /// [baseName] and the current time: a version that lost a conflict is
+  /// kept where the user can open it, never dropped.
+  Future<NoteFile> saveConflictCopy({
+    required String folder,
+    required String baseName,
+    required String content,
+  }) async {
+    final now = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final stamp = '${now.year}-${two(now.month)}-${two(now.day)} '
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+    final prefix = folder.isEmpty ? '' : '$folder/';
+    for (var n = 1;; n++) {
+      final suffix = n == 1 ? '' : ' $n';
+      final relativePath = '$prefix$baseName (conflict $stamp$suffix).md';
+      try {
+        final copy = await _noteRepository.createNew(relativePath, content);
+        _onNoteWritten(copy);
+        Log.w('⚠️ NoteFileProvider: Saved conflicting version as $relativePath');
+        return copy;
+      } on FileAlreadyExistsException {
+        if (n >= 20) rethrow;
+      }
     }
   }
 

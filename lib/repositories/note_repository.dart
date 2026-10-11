@@ -1,4 +1,5 @@
 import 'package:path/path.dart' as path;
+import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/models/note_file.dart';
 import 'package:planetxt/repositories/base_repository.dart';
 import 'package:planetxt/services/storage_service.dart';
@@ -78,12 +79,40 @@ class NoteRepository extends BaseRepository<NoteFile> {
   /// Get cached notes.
   List<NoteFile> get cachedNotes => List.unmodifiable(cache.values);
 
-  /// Save note file.
-  Future<void> save(NoteFile noteFile) async {
+  /// Re-read one note from disk: `null` when it no longer exists.
+  Future<NoteFile?> loadByRelativePath(String relativePath) async {
+    final store = storageService.store;
+    if (store == null) throw Exception('Storage not initialized');
+
+    final storePath = StorageService.notePath(relativePath);
+    final mtime = await store.modified(storePath);
+    final content = await store.read(storePath);
+    if (content == null) {
+      cache.remove(relativePath);
+      lastModified.remove(relativePath);
+      return null;
+    }
+    final note = itemFromContent(StoreEntry(storePath, mtime), content)!;
+    cache[relativePath] = note;
+    if (mtime != null) lastModified[relativePath] = mtime;
+    rememberDisk(storePath, mtime, content);
+    return note;
+  }
+
+  /// Save note file. With [expected], fails with [FileConflictException]
+  /// when the file no longer holds that content.
+  Future<void> save(NoteFile noteFile, {ExpectedContent? expected}) async {
     try {
-      await storageService.store!.write(noteFile.path, noteFile.content);
+      final store = storageService.store!;
+      if (expected != null) await checkExpected(noteFile.path, expected);
+      await store.write(noteFile.path, noteFile.content);
       cache[noteFile.relativePath] =
           noteFile.copyWith(lastModified: DateTime.now());
+      try {
+        final mtime = await store.modified(noteFile.path);
+        if (mtime != null) lastModified[noteFile.relativePath] = mtime;
+        rememberDisk(noteFile.path, mtime, noteFile.content);
+      } catch (_) {}
       Log.d('📝 NoteRepository: Saved note file ${noteFile.relativePath}');
     } catch (e) {
       Log.e('❌ NoteRepository: Error saving note file', error: e);
@@ -136,7 +165,11 @@ class NoteRepository extends BaseRepository<NoteFile> {
   }
 
   /// Write a note, creating or overwriting it (used by the editor's saves).
-  Future<NoteFile> create(String relativePath, String content) async {
+  Future<NoteFile> create(
+    String relativePath,
+    String content, {
+    ExpectedContent? expected,
+  }) async {
     if (!storageService.isInitialized) {
       throw Exception('Storage not initialized');
     }
@@ -150,7 +183,7 @@ class NoteRepository extends BaseRepository<NoteFile> {
       lastModified: DateTime.now(),
     );
 
-    await save(noteFile);
+    await save(noteFile, expected: expected);
     return noteFile;
   }
 

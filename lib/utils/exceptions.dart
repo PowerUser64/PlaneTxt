@@ -56,6 +56,20 @@ class FileAlreadyExistsException extends FileOperationException {
   });
 }
 
+/// Exception thrown when a file changed on disk since the caller read it
+class FileConflictException extends FileOperationException {
+  /// Current content on disk, or `null` when the file was deleted.
+  final String? diskContent;
+
+  const FileConflictException(
+    super.message, {
+    super.filePath,
+    this.diskContent,
+    super.details,
+    super.originalError,
+  });
+}
+
 /// Exception thrown when directory operations fail
 class DirectoryException extends PlaneTxtException {
   final String? directoryPath;

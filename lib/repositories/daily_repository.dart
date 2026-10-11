@@ -1,4 +1,5 @@
 import 'package:planetxt/models/daily_file.dart';
+import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/repositories/base_repository.dart';
 import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/utils/logger.dart';
@@ -101,20 +102,24 @@ class DailyRepository extends BaseRepository<DailyFile> {
     if (dailyFile != null) {
       cache[date] = dailyFile;
       if (currentMod != null) lastModified[date] = currentMod;
+      rememberDisk(relPath, currentMod, dailyFile.content);
     }
     return dailyFile;
   }
 
-  /// Save daily file.
-  Future<void> save(DailyFile dailyFile) async {
+  /// Save daily file. With [expected], fails with [FileConflictException]
+  /// when the file no longer holds that content.
+  Future<void> save(DailyFile dailyFile, {ExpectedContent? expected}) async {
     try {
       final store = storageService.store!;
+      if (expected != null) await checkExpected(dailyFile.path, expected);
       await store.write(dailyFile.path, dailyFile.content);
       cache[dailyFile.date] = dailyFile;
       // Record the new mtime so loadByDate doesn't re-read our own write.
       try {
         final mtime = await store.modified(dailyFile.path);
         if (mtime != null) lastModified[dailyFile.date] = mtime;
+        rememberDisk(dailyFile.path, mtime, dailyFile.content);
       } catch (_) {}
       Log.d('📅 DailyRepository: Saved daily file for ${dailyFile.date}');
     } catch (e) {
@@ -124,7 +129,11 @@ class DailyRepository extends BaseRepository<DailyFile> {
   }
 
   /// Create new daily file.
-  Future<DailyFile> create(String date, String content) async {
+  Future<DailyFile> create(
+    String date,
+    String content, {
+    ExpectedContent? expected,
+  }) async {
     if (!storageService.isInitialized) {
       throw Exception('Storage not initialized');
     }
@@ -134,7 +143,7 @@ class DailyRepository extends BaseRepository<DailyFile> {
       date: date,
       content: content,
     );
-    await save(dailyFile);
+    await save(dailyFile, expected: expected);
     return dailyFile;
   }
 }

@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/logger.dart';
 
 /// Base class for file-backed repositories with caching, parallel loading,
@@ -205,6 +207,42 @@ abstract class BaseRepository<T> {
   Future<void> persistCache() => _persistCache();
 
   int get cacheSize => cache.length;
+
+  // --- conflict detection ---------------------------------------------------
+
+  /// Last content this repository wrote or read per store path, with the
+  /// file's mtime at that moment: lets [checkExpected] skip a read when the
+  /// file has not been touched since.
+  final Map<String, (DateTime, String)> _knownDisk = {};
+
+  /// Record that [relPath] held [content] with modification time [mtime].
+  void rememberDisk(String relPath, DateTime? mtime, String content) {
+    if (mtime == null) {
+      _knownDisk.remove(relPath);
+    } else {
+      _knownDisk[relPath] = (mtime, content);
+    }
+  }
+
+  /// Throw [FileConflictException] unless [relPath] still holds what the
+  /// caller expects. Compares content, not mtimes alone: sync tools keep
+  /// the source mtime, which can be older than our last write.
+  Future<void> checkExpected(String relPath, ExpectedContent expected) async {
+    final store = storageService.store!;
+    final mtime = await store.modified(relPath);
+    final known = _knownDisk[relPath];
+    final onDisk = (mtime != null && known != null && known.$1 == mtime)
+        ? known.$2
+        : await store.read(relPath);
+    if (onDisk != expected.content) {
+      Log.w('⚠️ $tag: $relPath changed on disk since it was read');
+      throw FileConflictException(
+        '$relPath changed on disk since it was read',
+        filePath: relPath,
+        diskContent: onDisk,
+      );
+    }
+  }
 
   void clearCache() {
     cache.clear();
