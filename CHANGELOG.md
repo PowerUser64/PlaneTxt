@@ -1,5 +1,48 @@
 # Changelog
 
+## [2.1.0] - 2026-10-11
+
+### Added
+- Search across all days and notes, ignoring accents
+- Week review: todos done, still open and carried over, and the week's events
+- Each morning, an offer to carry over the todos left open on previous days, grouped by day, moved or copied
+- Swipe between days, a Today button, an empty day with "Start the day", and the selected tab kept
+- Tick or untick a todo with one tap in the day view
+- Notes: collapsible folders, sharing, and archiving to `archives/` with undo
+- Save a shared text as a new note
+- Reminders: adjustable delay or off, and tapping a reminder opens its day. On Linux, event reminders while the app is open
+- Widget text size setting
+- Edits made outside the app are detected before saving, with a choice to keep either version or both
+- Conflict copies left by Syncthing, Nextcloud or Dropbox are reported
+- The first launch offers to pick a synced folder, and an unreachable storage folder is reported until it is selected again
+
+### Changed
+- Event reminders no longer ask for exact alarm access, and the notification permission is asked once
+- Logs no longer contain the user's text (event titles, todos, shared content): counts, dates and ids only
+- Android backup is disabled: files live in your folder, or in the app's private storage by choice
+- Debug tools are hidden behind a long press on the version, and widget settings only show on Android
+- Store icon, screenshots and feature graphic now show the PlaneTxt name
+
+### Removed
+- Unused `USE_FULL_SCREEN_INTENT` permission
+- Unused files from `assets/` (about 800 KB) are no longer bundled in the APK
+
+### Fixed
+- Creating a note no longer overwrites an existing one, and accented letters are kept in note and folder names
+- The last keystrokes are saved when closing the editor or leaving the app
+- An unreadable file is no longer treated as missing and overwritten with the template
+- Todos and events are recognized in files with CRLF line endings, and `[X]` counts as done
+- Writes to a SAF folder are atomic, and interrupted writes are recovered
+- Carry-over writes the target day before removing the todos from the source days
+- ICS import: descriptions stay under their event, no duplicates on re-import, TZID time zones, folded lines, VALARM ignored, and the import is saved after the dialog closes
+- A shared text that is not a calendar opens quick add instead of "Invalid ICS", and the imported day opens
+- Editor: Bold button, new todo unchecked after Enter, a list ends on an empty bullet, markers at line start, readable hints
+- Event descriptions are no longer repeated in notes
+- The widget reads the default storage where the app writes it (`app_flutter/Org`)
+- Quick add places an event after the last event's description, and dates outside 2000-2100 are ignored
+- Tapping a reminder shows its day even with an editor open
+- Ticking a todo shows at once, and writes to the same day are queued
+
 ## [2.0.1] - 2026-09-17
 
 ### Fixed

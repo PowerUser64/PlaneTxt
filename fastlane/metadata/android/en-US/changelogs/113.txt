@@ -1,0 +1,5 @@
+- Search across days and notes, week review, morning carry-over of open todos
+- Swipe between days, one-tap todos, collapsible note folders, archive, share a text as a note
+- Adjustable reminders, widget text size
+- Safer storage: outside edits and sync conflicts detected, atomic writes to SAF folders
+- No user text in logs, no Android backup, smaller APK
