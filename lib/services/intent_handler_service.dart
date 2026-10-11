@@ -148,7 +148,7 @@ class IntentHandlerService {
   /// Returns the date that should be selected after adding events
   static Future<String?> _showConfirmationDialog(
       BuildContext context, List<CalendarEvent> events) async {
-    return await showDialog<String?>(
+    final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
@@ -166,23 +166,21 @@ class IntentHandlerService {
           actions: <Widget>[
             TextButton(
               child: const Text('Cancel'),
-              onPressed: () {
-                Navigator.of(context).pop(null);
-              },
+              onPressed: () => Navigator.of(context).pop(false),
             ),
             TextButton(
               child: const Text('Add Events'),
-              onPressed: () async {
-                final firstEventDate =
-                    events.isNotEmpty ? events.first.date : null;
-                Navigator.of(context).pop(firstEventDate);
-                await _addEventsToDailyFiles(context, events);
-              },
+              onPressed: () => Navigator.of(context).pop(true),
             ),
           ],
         );
       },
     );
+    // Saved with the caller's context, not the dialog's: that one unmounts
+    // while the files are being written, which used to drop the import.
+    if (confirmed != true || !context.mounted) return null;
+    final added = await _addEventsToDailyFiles(context, events);
+    return added && events.isNotEmpty ? events.first.date : null;
   }
 
   /// Build event preview widget for confirmation dialog
@@ -225,15 +223,18 @@ class IntentHandlerService {
     );
   }
 
-  /// Add events to daily files
-  static Future<void> _addEventsToDailyFiles(
+  /// Add events to daily files. Returns whether every day was saved.
+  static Future<bool> _addEventsToDailyFiles(
       BuildContext context, List<CalendarEvent> events) async {
+    // Looked up before the first await: nothing below depends on [context]
+    // staying mounted.
+    final dailyFileProvider =
+        Provider.of<DailyFileProvider>(context, listen: false);
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
     try {
       Log.i(
           '📅 IntentHandlerService: Starting to add ${events.length} events to daily files');
-      final dailyFileProvider =
-          Provider.of<DailyFileProvider>(context, listen: false);
-      final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
 
       // Group events by date
       final eventsByDate = <String, List<CalendarEvent>>{};
@@ -241,48 +242,38 @@ class IntentHandlerService {
         eventsByDate.putIfAbsent(event.date, () => []).add(event);
       }
 
-      // Process each date's events
+      // Process each date's events, re-applied to the file as it is on
+      // disk when saving (a sync landing meanwhile is kept).
+      final eventHeaderRegex = RegExp(themeProvider.eventHeaderRegex);
       for (final entry in eventsByDate.entries) {
-        final date = entry.key;
-        final dateEvents = entry.value;
-
-        // Get existing daily file or create template
-        var dailyFile = await dailyFileProvider.getDailyFile(date);
-        String content = dailyFile?.content ?? themeProvider.dailyTemplate;
-
-        // Add events to content
-        content = _addEventsToContent(
-            content, dateEvents, RegExp(themeProvider.eventHeaderRegex));
-
-        // Save the updated content
-        if (!context.mounted) return;
-        await dailyFileProvider.saveDailyFile(context, date, content);
+        await dailyFileProvider.updateDailyFile(
+          entry.key,
+          (content) =>
+              _addEventsToContent(content, entry.value, eventHeaderRegex),
+          template: themeProvider.dailyTemplate,
+        );
       }
 
-      // Show success message
       Log.i(
           '📅 IntentHandlerService: Successfully added ${events.length} events to daily files');
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Successfully added ${events.length} event(s)'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-
-      Log.i(
-          '📅 IntentHandlerService: Successfully added ${events.length} events to daily files');
+      messenger
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Successfully added ${events.length} event(s)'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      return true;
     } catch (e) {
       Log.e('❌ IntentHandlerService: Error adding events to daily files',
           error: e);
-      if (!context.mounted) rethrow;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
             content: Text('Error adding events: ${e.toString()}'),
-            duration: Duration(seconds: 2)),
+            duration: const Duration(seconds: 4)),
       );
-      rethrow;
+      return false;
     }
   }
 
