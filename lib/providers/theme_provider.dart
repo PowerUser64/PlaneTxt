@@ -21,6 +21,7 @@ class ThemeProvider extends ChangeNotifier {
   bool _widgetDarkTheme = false;
   double _widgetTransparency =
       1.0; // 1.0 = fully opaque, 0.0 = fully transparent
+  double _widgetTextSize = 14.0;
   String _todoHeaderRegex = r'^#{1,2}\s+.*(Todos?|Tasks?)';
   String _eventHeaderRegex = r'^#{1,2}\s+.*Events?';
   String _logHeaderRegex = r'^#{1,2}\s+.*(Journal|Logs?)';
@@ -46,6 +47,7 @@ class ThemeProvider extends ChangeNotifier {
   String get dailyTemplate => _dailyTemplate;
   bool get widgetDarkTheme => _widgetDarkTheme;
   double get widgetTransparency => _widgetTransparency;
+  double get widgetTextSize => _widgetTextSize;
   String get todoHeaderRegex => _todoHeaderRegex;
   String get eventHeaderRegex => _eventHeaderRegex;
   String get logHeaderRegex => _logHeaderRegex;
@@ -76,6 +78,8 @@ class ThemeProvider extends ChangeNotifier {
     _widgetTransparency = prefs.getDouble(AppConstants.widgetTransparencyKey) ??
         prefs.getDouble(_legacyWidgetTransparencyKey) ??
         1.0;
+    _widgetTextSize =
+        prefs.getDouble(AppConstants.widgetTextSizeKey) ?? _widgetTextSize;
     _todoHeaderRegex =
         prefs.getString(_todoHeaderRegexKey) ?? r'^#{1,2}\s+.*(Todos?|Tasks?)';
     _eventHeaderRegex =
@@ -225,6 +229,14 @@ class ThemeProvider extends ChangeNotifier {
 
     // Update widget with new transparency
     await _updateWidgetWithNewTransparency(_widgetTransparency);
+  }
+
+  Future<void> setWidgetTextSize(double size) async {
+    _widgetTextSize = size.clamp(10.0, 24.0);
+    await SharedPrefsService.instance
+        .setDouble(AppConstants.widgetTextSizeKey, _widgetTextSize);
+    notifyListeners();
+    await WidgetService.updateWidgetTextSize(_widgetTextSize);
   }
 
   Future<void> setTodoHeaderRegex(String regex) async {

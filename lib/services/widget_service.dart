@@ -421,6 +421,20 @@ class WidgetService {
     }
   }
 
+  /// The widget reads [size] for its title, its content 6/7 of it.
+  static Future<void> updateWidgetTextSize(double size) async {
+    try {
+      await HomeWidget.saveWidgetData<double>(
+          AppConstants.widgetTextSizeKey, size);
+      await HomeWidget.updateWidget(
+        name: _widgetName,
+        androidName: 'PlaneTxtWidgetProvider',
+      );
+    } catch (e) {
+      Log.e('❌ WidgetService: Error updating widget text size', error: e);
+    }
+  }
+
   /// Update widget to show empty state for a given date (no daily file exists)
   static Future<void> updateWidgetEmptyDay(String date) async {
     try {

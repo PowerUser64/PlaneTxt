@@ -69,6 +69,8 @@ class AppConstants {
   // and the native widget (Android) won’t find the values.
   static const String widgetThemeKey = 'widget_dark_theme';
   static const String widgetTransparencyKey = 'widget_transparency';
+  // Title size of the home screen widget, in sp (content is 6/7 of it).
+  static const String widgetTextSizeKey = 'widget_text_size';
   static const String widgetBackgroundColorKey = 'widget_background_color';
   static const String widgetTitleColorKey = 'widget_title_color';
   static const String widgetTextColorKey = 'widget_text_color';

@@ -87,6 +87,28 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                   );
                 },
               ),
+            if (Platform.isAndroid)
+              Consumer<ThemeProvider>(
+                builder: (context, themeProvider, child) {
+                  final size = themeProvider.widgetTextSize;
+                  return ListTile(
+                    leading: const Icon(Icons.format_size),
+                    title: const Text('Widget Text Size'),
+                    subtitle: Text('${size.round()} sp'),
+                    trailing: SizedBox(
+                      width: 200,
+                      child: Slider(
+                        value: size,
+                        min: 10,
+                        max: 24,
+                        divisions: 7,
+                        label: '${size.round()}',
+                        onChanged: themeProvider.setWidgetTextSize,
+                      ),
+                    ),
+                  );
+                },
+              ),
           ]),
 
           const Divider(),
