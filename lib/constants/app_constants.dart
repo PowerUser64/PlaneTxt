@@ -54,6 +54,8 @@ class AppConstants {
   // Human-readable name of that folder, for display.
   static const String storageTreeNameKey = 'storage_tree_name';
   static const String templateKey = 'daily_template';
+  // Set once the first-run "where should your files live?" prompt was shown.
+  static const String storageChoiceOfferedKey = 'storage_choice_offered';
   // NOTE: Do not prefix these with `flutter.`.
   // The `shared_preferences` Android implementation already prefixes keys with
   // `flutter.` under the hood; adding it here would result in `flutter.flutter.*`

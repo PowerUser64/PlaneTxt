@@ -2,15 +2,20 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:io';
 
+import 'package:planetxt/constants/app_constants.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/providers/directory_provider.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
+import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/screens/calendar_view.dart';
 import 'package:planetxt/screens/notes_view.dart';
+import 'package:planetxt/screens/preferences/storage_section.dart';
 import 'package:planetxt/screens/preferences_screen.dart';
 import 'package:planetxt/services/file_monitor_service.dart';
 import 'package:planetxt/services/intent_handler_service.dart';
 import 'package:planetxt/services/notification_service.dart';
+import 'package:planetxt/services/shared_prefs_service.dart';
+import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:provider/provider.dart';
 
@@ -23,6 +28,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
+  bool _storageBannerDismissed = false;
 
   final List<Widget> _screens = [
     const CalendarView(),
@@ -98,21 +104,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
       if (!mounted) return;
 
-      // Access to the configured storage folder was lost (folder deleted,
-      // permission revoked, or migration from the pre-SAF custom path).
-      // The app fell back to its private folder; tell the user how to get
-      // their files back.
-      if (directoryProvider.storageAccessLost) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-                'Storage folder is no longer accessible. Re-select it in '
-                'Preferences → Storage Location to keep using your synced '
-                'files.'),
-            duration: Duration(seconds: 12),
-          ),
-        );
-      }
+      // A lost storage folder is reported by a persistent banner (see
+      // _buildStorageLostBanner), not a snackbar the user may miss.
 
       // 2. Today-priority load: disk-cache restore + today refresh. The
       //    calendar can paint with last-known content immediately after.
@@ -120,6 +113,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final dailyProvider = context.read<DailyFileProvider>();
       await dailyProvider.loadTodayPriority();
 
+      if (!mounted) return;
+      await _offerStorageChoiceOnFirstRun();
       if (!mounted) return;
 
       // 3. Everything else - notifications, file monitor, full validation,
@@ -228,6 +223,90 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Fresh install on Android: files default to the app's private folder,
+  /// which sync apps cannot see and an uninstall deletes. Offer a real
+  /// folder once, before anything gets written there. Not shown when the
+  /// private folder already holds files: switching would hide them.
+  Future<void> _offerStorageChoiceOnFirstRun() async {
+    if (!Platform.isAndroid) return;
+    final prefs = SharedPrefsService.instance;
+    if (prefs.getBool(AppConstants.storageChoiceOfferedKey) ?? false) return;
+    final themeProvider = context.read<ThemeProvider>();
+    if (themeProvider.storageTreeUri != null ||
+        themeProvider.customStoragePath != null) {
+      return;
+    }
+    final store = StorageService().store;
+    if (store == null) return;
+    try {
+      final hasFiles =
+          (await store.list(StorageService.dailiesDirName)).isNotEmpty ||
+              (await store.list(StorageService.notesDirName, recursive: true))
+                  .isNotEmpty;
+      await prefs.setBool(AppConstants.storageChoiceOfferedKey, true);
+      if (hasFiles || !mounted) return;
+    } catch (e) {
+      Log.e('❌ MainScreen: Cannot check the private folder', error: e);
+      return;
+    }
+
+    final choose = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Where should your files live?'),
+        content: const Text(
+          'PlaneTxt keeps your days and notes as plain Markdown files.\n\n'
+          'Pick a folder shared by a sync app (Syncthing, Dropbox, ...) to '
+          'reach them from your other devices. By default they stay '
+          'private to PlaneTxt: sync apps cannot see them, and uninstalling '
+          'the app deletes them.\n\n'
+          'You can change this later in Settings.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep default'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Choose a folder'),
+          ),
+        ],
+      ),
+    );
+    if (choose == true && mounted) {
+      await StorageSection.pickCustomFolder(context);
+    }
+  }
+
+  /// Shown while the configured folder is unreachable (deleted, moved,
+  /// access revoked): the app writes to its private folder meanwhile, and
+  /// those changes will not show up in the synced folder.
+  Widget _buildStorageLostBanner(BuildContext context) {
+    final directory = context.watch<DirectoryProvider>();
+    if (!directory.storageAccessLost || _storageBannerDismissed) {
+      return const SizedBox.shrink();
+    }
+    return MaterialBanner(
+      leading: Icon(Icons.folder_off,
+          color: Theme.of(context).colorScheme.error),
+      content: const Text(
+          "Your storage folder can't be reached (deleted, moved, or access "
+          'revoked). Until you select it again, changes are saved to the '
+          "app's private folder and won't sync."),
+      actions: [
+        TextButton(
+          onPressed: () => setState(() => _storageBannerDismissed = true),
+          child: const Text('Later'),
+        ),
+        FilledButton(
+          onPressed: () => StorageSection.pickCustomFolder(context),
+          child: const Text('Select folder'),
+        ),
+      ],
+    );
+  }
+
   /// Thin banner shown while the app reads every file to build its cache
   /// (first launch, or right after the storage folder changed). The full
   /// scan runs in the background; without this the app just looks slow.
@@ -275,6 +354,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       ),
       body: Column(
         children: [
+          _buildStorageLostBanner(context),
           _buildCacheBanner(context),
           Expanded(child: _screens[_currentIndex]),
         ],

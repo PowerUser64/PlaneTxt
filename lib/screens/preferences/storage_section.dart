@@ -47,9 +47,11 @@ class StorageSection extends StatelessWidget {
       BuildContext context, ThemeProvider themeProvider) {
     final hasCustom = themeProvider.customStoragePath != null ||
         themeProvider.storageTreeUri != null;
+    // Storage is switched with the section's context, after the dialog
+    // closed: the dialog's own context unmounts during the switch.
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Choose Storage Location'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -66,21 +68,21 @@ class StorageSection extends StatelessWidget {
                       'access your files from other devices. No special '
                       'permission is required.'
                   : 'Pick any folder to share your files with other tools.',
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(dialogContext).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
             ListTile(
               leading: const Icon(Icons.folder_special),
               title: const Text('Default Location'),
-              subtitle: const Text('App private storage (Recommended)'),
+              subtitle: Text(defaultLocationDescription),
               trailing: !hasCustom
                   ? const Icon(Icons.check, color: Colors.green)
                   : null,
               onTap: () async {
+                Navigator.of(dialogContext).pop();
                 await themeProvider.setStorageTree(null, null);
                 if (!context.mounted) return;
-                Navigator.of(context).pop();
-                await _reinitializeStorage(context);
+                await reinitializeStorage(context);
               },
             ),
             ListTile(
@@ -90,14 +92,16 @@ class StorageSection extends StatelessWidget {
               trailing: hasCustom
                   ? const Icon(Icons.check, color: Colors.green)
                   : null,
-              onTap: () =>
-                  _selectCustomStorageLocation(context, themeProvider),
+              onTap: () {
+                Navigator.of(dialogContext).pop();
+                pickCustomFolder(context);
+              },
             ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
         ],
@@ -105,79 +109,63 @@ class StorageSection extends StatelessWidget {
     );
   }
 
-  Future<void> _selectCustomStorageLocation(
-      BuildContext context, ThemeProvider themeProvider) async {
+  /// What the default location means for the user's files.
+  static String get defaultLocationDescription => Platform.isAndroid
+      ? 'Private to PlaneTxt: sync apps cannot see it, and uninstalling '
+          'the app deletes it'
+      : 'The Org folder in your Documents';
+
+  /// Let the user pick a storage folder and switch to it. [context] must
+  /// outlive the picker - not a dialog's context. Returns whether the
+  /// storage location changed.
+  static Future<bool> pickCustomFolder(BuildContext context) async {
+    final themeProvider = context.read<ThemeProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final errorColor = Theme.of(context).colorScheme.error;
     try {
+      final String location;
       if (Platform.isAndroid) {
         // System folder picker; the returned document-tree URI carries a
         // persistable read/write grant - no storage permission involved.
         final treeUri = await SafFileStore.pickTree();
-        if (treeUri == null) return; // cancelled
+        if (treeUri == null) return false; // cancelled
 
-        final name = await SafFileStore.treeDisplayName(treeUri);
-        await themeProvider.setStorageTree(treeUri, name);
-
-        if (!context.mounted) return;
-        Navigator.of(context).pop();
-        await _reinitializeStorage(context);
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Storage location changed to: $name'),
-              action: SnackBarAction(label: 'OK', onPressed: () {}),
-            ),
-          );
+        location = await SafFileStore.treeDisplayName(treeUri);
+        await themeProvider.setStorageTree(treeUri, location);
+      } else {
+        // Desktop / iOS: raw filesystem path.
+        final selected = await FilePicker.getDirectoryPath();
+        if (selected == null) return false;
+        try {
+          final testFile = File('$selected/.test_write');
+          await testFile.writeAsString('test');
+          await testFile.delete();
+        } catch (e) {
+          messenger.showSnackBar(SnackBar(
+            content: Text('Cannot write to $selected: $e\n'
+                'The storage location was not changed.'),
+            backgroundColor: errorColor,
+            duration: const Duration(seconds: 5),
+          ));
+          return false;
         }
-        return;
+        location = selected;
+        await themeProvider.setStoragePath(selected);
       }
 
-      // Desktop / iOS: raw filesystem path.
-      final String? selectedDirectory = await FilePicker.getDirectoryPath();
-      if (selectedDirectory == null || !context.mounted) return;
-
-      final selectedDir = Directory(selectedDirectory);
-      try {
-        final testFile = File('${selectedDir.path}/.test_write');
-        await testFile.writeAsString('test');
-        await testFile.delete();
-
-        await themeProvider.setStoragePath(selectedDir.path);
-
-        if (!context.mounted) return;
-        Navigator.of(context).pop();
-        await _reinitializeStorage(context);
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content:
-                  Text('Storage location changed to: ${selectedDir.path}'),
-              action: SnackBarAction(label: 'OK', onPressed: () {}),
-            ),
-          );
-        }
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                  'Cannot write to selected directory: $e\nUsing default location instead.'),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-      }
+      if (!context.mounted) return true;
+      await reinitializeStorage(context);
+      messenger.showSnackBar(SnackBar(
+        content: Text('Storage location changed to: $location'),
+        action: SnackBarAction(label: 'OK', onPressed: () {}),
+      ));
+      return true;
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error selecting folder: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      messenger.showSnackBar(SnackBar(
+        content: Text('Error selecting folder: $e'),
+        backgroundColor: errorColor,
+      ));
+      return false;
     }
   }
 
@@ -185,18 +173,19 @@ class StorageSection extends StatelessWidget {
       BuildContext context, ThemeProvider themeProvider) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Reset Storage Location'),
         content: const Text(
           'Are you sure you want to reset the storage location to the default folder?',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () async {
+              Navigator.of(dialogContext).pop();
               final treeUri = themeProvider.storageTreeUri;
               await themeProvider.setStorageTree(null, null);
               // Release the now-unused grant (best effort).
@@ -206,8 +195,7 @@ class StorageSection extends StatelessWidget {
                 } catch (_) {}
               }
               if (!context.mounted) return;
-              Navigator.of(context).pop();
-              await _reinitializeStorage(context);
+              await reinitializeStorage(context);
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -222,17 +210,20 @@ class StorageSection extends StatelessWidget {
     );
   }
 
-  Future<void> _reinitializeStorage(BuildContext context) async {
-    await context.read<DirectoryProvider>().initializeDirectories(context);
+  /// Switch every provider to the storage location now configured.
+  static Future<void> reinitializeStorage(BuildContext context) async {
+    // Looked up before the first await: [context] may unmount meanwhile,
+    // and the reloads below must still run.
+    final directoryProvider = context.read<DirectoryProvider>();
+    final dailyProvider = context.read<DailyFileProvider>();
+    final noteProvider = context.read<NoteFileProvider>();
+    await directoryProvider.initializeDirectories(context);
     // Re-attach the file monitor to the new root (watch vs polling may
     // differ between io and SAF roots).
     await FileMonitorService().reinitialize();
-    if (!context.mounted) return;
     // Force-reload from the new root; the in-memory and disk caches still
     // hold the previous folder's content. Runs in the background - the
     // "building cache" banner covers the wait.
-    final dailyProvider = context.read<DailyFileProvider>();
-    final noteProvider = context.read<NoteFileProvider>();
     unawaited(dailyProvider.loadDailyFiles(forceReload: true));
     unawaited(noteProvider.loadNoteFiles(forceReload: true));
   }
