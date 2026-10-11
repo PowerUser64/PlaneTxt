@@ -47,12 +47,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     });
   }
 
-  /// A reminder was tapped: show its day.
+  /// A reminder was tapped: show its day, above any screen left open (an
+  /// editor saves its text as it closes).
   void _openRequestedDay() {
     final request = NotificationService().openDayRequest;
     final date = request.value;
     if (date == null || !mounted) return;
     request.value = null;
+    Navigator.of(context).popUntil((route) => route.isFirst);
     _navigateToDate(date);
   }
 
