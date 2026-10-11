@@ -211,6 +211,38 @@ class NoteRepository extends BaseRepository<NoteFile> {
     return renamed;
   }
 
+  /// Move [noteFile] to `archives/`, in the same subfolder: out of the
+  /// notes list, still in the synced folder. A name already taken there
+  /// gets a number. Returns the archived file's store path.
+  Future<String> archive(NoteFile noteFile) async {
+    final store = storageService.store!;
+    final base = path.posix.withoutExtension(noteFile.relativePath);
+    var target = '${StorageService.archivesDirName}/$base.md';
+    for (var n = 2; await store.exists(target); n++) {
+      target = '${StorageService.archivesDirName}/$base ($n).md';
+    }
+    await store.rename(noteFile.path, target);
+    cache.remove(noteFile.relativePath);
+    lastModified.remove(noteFile.relativePath);
+    Log.d('📝 NoteRepository: Archived ${noteFile.relativePath} to $target');
+    return target;
+  }
+
+  /// Move the file archived at [archivedPath] back to [relativePath] in the
+  /// notes. Throws [FileAlreadyExistsException] if that name is taken again.
+  Future<NoteFile?> unarchive(String archivedPath, String relativePath) async {
+    final store = storageService.store!;
+    final target = StorageService.notePath(relativePath);
+    if (await store.exists(target)) {
+      throw FileAlreadyExistsException(
+        'A note named $relativePath already exists',
+        filePath: target,
+      );
+    }
+    await store.rename(archivedPath, target);
+    return loadByRelativePath(relativePath);
+  }
+
   /// Delete note file.
   Future<void> delete(NoteFile noteFile) async {
     try {

@@ -1,6 +1,7 @@
 package fr.rvier.planetxt
 
 import android.app.AlarmManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -51,6 +52,10 @@ class MainActivity : FlutterActivity() {
                     } else {
                         result.error("INVALID_URI", "URI is null", null)
                     }
+                }
+                "shareText" -> {
+                    shareText(call.argument<String>("text") ?: "", call.argument<String>("subject"))
+                    result.success(true)
                 }
                 else -> {
                     result.notImplemented()
@@ -166,6 +171,23 @@ class MainActivity : FlutterActivity() {
                 Log.d("MainActivity", "Unknown intent action: ${intent.action}")
             }
         }
+    }
+
+    /** Open the system share sheet with [text], PlaneTxt itself left out. */
+    private fun shareText(text: String, subject: String?) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+            if (subject != null) putExtra(Intent.EXTRA_SUBJECT, subject)
+        }
+        val chooser = Intent.createChooser(send, null)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            chooser.putExtra(
+                Intent.EXTRA_EXCLUDE_COMPONENTS,
+                arrayOf(ComponentName(this, MainActivity::class.java))
+            )
+        }
+        startActivity(chooser)
     }
 
     private fun canScheduleExactAlarms(): Boolean {

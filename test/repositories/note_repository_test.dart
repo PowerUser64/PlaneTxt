@@ -76,4 +76,39 @@ void main() {
       expect(noteFile('Plan.md').readAsStringSync(), 'edited elsewhere');
     });
   });
+  group('NoteRepository archives', () {
+    File archived(String relPath) =>
+        File('${tempDir.path}/Org/archives/$relPath');
+
+    test('moves a note to archives/, keeping its folder', () async {
+      final note = await repository.create('work/Plan.md', 'keep me');
+
+      final target = await repository.archive(note);
+
+      expect(target, 'archives/work/Plan.md');
+      expect(noteFile('work/Plan.md').existsSync(), isFalse);
+      expect(archived('work/Plan.md').readAsStringSync(), 'keep me');
+    });
+
+    test('numbers a name already taken in the archives', () async {
+      archived('Plan.md')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('older');
+      final note = await repository.create('Plan.md', 'newer');
+
+      expect(await repository.archive(note), 'archives/Plan (2).md');
+      expect(archived('Plan.md').readAsStringSync(), 'older');
+    });
+
+    test('brings an archived note back', () async {
+      final note = await repository.create('Plan.md', 'keep me');
+      final target = await repository.archive(note);
+
+      final restored = await repository.unarchive(target, 'Plan.md');
+
+      expect(restored!.content, 'keep me');
+      expect(noteFile('Plan.md').readAsStringSync(), 'keep me');
+      expect(archived('Plan.md').existsSync(), isFalse);
+    });
+  });
 }

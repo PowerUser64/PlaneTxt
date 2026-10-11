@@ -6,6 +6,11 @@ class NoteListItem extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onRename;
   final VoidCallback onDelete;
+  final VoidCallback? onShare;
+  final VoidCallback? onArchive;
+
+  /// Off inside a folder group, where the folder is already shown.
+  final bool showFolder;
 
   const NoteListItem({
     super.key,
@@ -13,6 +18,9 @@ class NoteListItem extends StatelessWidget {
     required this.onTap,
     required this.onRename,
     required this.onDelete,
+    this.onShare,
+    this.onArchive,
+    this.showFolder = true,
   });
 
   @override
@@ -34,7 +42,7 @@ class NoteListItem extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (note.folderPath.isNotEmpty)
+            if (showFolder && note.folderPath.isNotEmpty)
               Text(
                 note.folderPath,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -55,12 +63,40 @@ class NoteListItem extends StatelessWidget {
               case 'rename':
                 onRename();
                 break;
+              case 'share':
+                onShare?.call();
+                break;
+              case 'archive':
+                onArchive?.call();
+                break;
               case 'delete':
                 onDelete();
                 break;
             }
           },
           itemBuilder: (context) => [
+            if (onShare != null)
+              const PopupMenuItem(
+                value: 'share',
+                child: Row(
+                  children: [
+                    Icon(Icons.share),
+                    SizedBox(width: 8),
+                    Text('Share'),
+                  ],
+                ),
+              ),
+            if (onArchive != null)
+              const PopupMenuItem(
+                value: 'archive',
+                child: Row(
+                  children: [
+                    Icon(Icons.archive_outlined),
+                    SizedBox(width: 8),
+                    Text('Archive'),
+                  ],
+                ),
+              ),
             const PopupMenuItem(
               value: 'rename',
               child: Row(

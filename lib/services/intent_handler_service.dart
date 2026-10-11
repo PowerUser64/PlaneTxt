@@ -14,6 +14,10 @@ class IntentHandlerService {
   static const String _channelName = 'fr.rvier.planetxt/intent';
   static const MethodChannel _channel = MethodChannel(_channelName);
 
+  /// Open the Android share sheet with [text].
+  static Future<void> shareText(String text, {String? subject}) =>
+      _channel.invokeMethod('shareText', {'text': text, 'subject': subject});
+
   /// Check if there's shared intent data and handle it
   /// Returns the date that should be selected after processing, or null if no intent was handled
   static Future<String?> handleSharedIntent(BuildContext context) async {

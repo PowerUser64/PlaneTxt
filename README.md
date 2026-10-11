@@ -24,7 +24,7 @@ PlaneTxt (formerly Planova) is the successor of MOrg: it replaces the calendar.t
 - **Todos**: tap a todo to check or uncheck it. Refill carries unfinished todos from any previous day over to today.
 - **Events**: `- @09:30 Team standup` becomes a timed event, with a notification one hour before it starts. On Linux, notifications only fire while PlaneTxt is running.
 - **Quick add**: add an event, a todo or a log to a day without opening the editor.
-- **Notes**: a searchable list of notes organized in subfolders, with rename and delete.
+- **Notes**: a searchable list of notes grouped in folders you can fold, with share, archive, rename and delete.
 - **Markdown editor**: formatting toolbar, auto-indent and todo handling.
 - **ICS import**: share an .ics file to PlaneTxt to merge its events into the right days. Importing the same file twice adds nothing. Any other shared text can be added to today as a todo, an event or a log.
 - **Home screen widget** (Android): today's events and todos, with light and dark styles and adjustable transparency.
@@ -106,6 +106,8 @@ Done:
 - [x] Android home screen widget
 - [x] ICS import through the Android share sheet
 - [x] Shared text added to today as a todo, an event or a log
+- [x] Notes grouped in folders that fold and unfold
+- [x] Share a note, archive a note to `archives/`
 - [x] Custom storage folder through the system picker, no storage permission
 - [x] Linux desktop build
 - [x] Unit tests and CI
@@ -113,9 +115,6 @@ Done:
 Next:
 
 - [ ] F-Droid and IzzyOnDroid listings
-- [ ] Share a note from the notes view
-- [ ] Archive a note
-- [ ] Fold and unfold note subfolders
 - [ ] Receive shared text as a new note
 - [ ] Weekly review screen
 - [ ] Desktop layout for wide screens

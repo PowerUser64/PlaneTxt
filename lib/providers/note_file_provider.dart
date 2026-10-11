@@ -251,6 +251,23 @@ class NoteFileProvider extends ChangeNotifier {
     }
   }
 
+  /// Move [note] to the archives folder. Returns where it went, for
+  /// [unarchiveNoteFile].
+  Future<String> archiveNoteFile(NoteFile note) async {
+    final archivedPath = await _noteRepository.archive(note);
+    _noteFiles.removeWhere((n) => n.relativePath == note.relativePath);
+    notifyListeners();
+    unawaited(_updateWidget());
+    return archivedPath;
+  }
+
+  /// Bring back a note [archiveNoteFile] moved to [archivedPath].
+  Future<void> unarchiveNoteFile(String archivedPath, NoteFile note) async {
+    final restored =
+        await _noteRepository.unarchive(archivedPath, note.relativePath);
+    if (restored != null) _onNoteWritten(restored);
+  }
+
   Future<void> deleteNoteFile(NoteFile noteFile) async {
     try {
       Log.d('📝 NoteFileProvider: Deleting note file ${noteFile.relativePath}');

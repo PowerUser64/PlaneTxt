@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/models/note_file.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
+import 'package:planetxt/services/intent_handler_service.dart';
 import 'package:planetxt/utils/exceptions.dart';
 import 'package:planetxt/utils/note_names.dart';
 import 'package:planetxt/widgets/note_editor.dart';
@@ -19,6 +23,9 @@ class _NotesViewState extends State<NotesView> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
+  /// Folders shown unfolded; every folder starts folded.
+  final Set<String> _openFolders = {};
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -30,6 +37,7 @@ class _NotesViewState extends State<NotesView> {
     return Consumer<NoteFileProvider>(
       builder: (context, noteFileProvider, child) {
         final filteredNotes = _filterNotes(noteFileProvider.noteFiles);
+        final entries = _listEntries(filteredNotes);
 
         return Column(
           children: [
@@ -70,14 +78,31 @@ class _NotesViewState extends State<NotesView> {
                   ? _buildEmptyState()
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: filteredNotes.length,
+                      itemCount: entries.length,
                       itemBuilder: (context, index) {
-                        final note = filteredNotes[index];
+                        final entry = entries[index];
+                        if (entry is _FolderEntry) {
+                          return _FolderHeader(
+                            folder: entry.folder,
+                            count: entry.count,
+                            open: _openFolders.contains(entry.folder),
+                            onTap: () => setState(() {
+                              if (!_openFolders.remove(entry.folder)) {
+                                _openFolders.add(entry.folder);
+                              }
+                            }),
+                          );
+                        }
+                        final note = entry as NoteFile;
                         return NoteListItem(
                           note: note,
+                          // In a search, folders are not grouped.
+                          showFolder: _searchQuery.isNotEmpty,
                           onTap: () => _openNote(note),
                           onRename: () => _renameNote(note),
                           onDelete: () => _deleteNote(note),
+                          onShare: () => _shareNote(note),
+                          onArchive: () => _archiveNote(note),
                         );
                       },
                     ),
@@ -125,6 +150,31 @@ class _NotesViewState extends State<NotesView> {
         ],
       ),
     );
+  }
+
+  /// The list's rows: the notes at the top level, then each folder's
+  /// header followed by its notes when unfolded. A search lists the
+  /// matching notes flat.
+  List<Object> _listEntries(List<NoteFile> notes) {
+    if (_searchQuery.isNotEmpty) return notes;
+    final root = <NoteFile>[];
+    final byFolder = <String, List<NoteFile>>{};
+    for (final note in notes) {
+      if (note.folderPath.isEmpty) {
+        root.add(note);
+      } else {
+        byFolder.putIfAbsent(note.folderPath, () => []).add(note);
+      }
+    }
+    final folders = byFolder.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return [
+      ...root,
+      for (final folder in folders) ...[
+        _FolderEntry(folder, byFolder[folder]!.length),
+        if (_openFolders.contains(folder)) ...byFolder[folder]!,
+      ],
+    ];
   }
 
   List<NoteFile> _filterNotes(List<NoteFile> notes) {
@@ -199,6 +249,43 @@ class _NotesViewState extends State<NotesView> {
     );
   }
 
+  Future<void> _shareNote(NoteFile note) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (Platform.isAndroid) {
+        await IntentHandlerService.shareText(note.content,
+            subject: note.displayName);
+      } else {
+        await Clipboard.setData(ClipboardData(text: note.content));
+        messenger.showSnackBar(SnackBar(
+            content: Text('"${note.displayName}" copied to the clipboard')));
+      }
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not share: $e')));
+    }
+  }
+
+  /// Move the note to the archives folder, with an undo.
+  Future<void> _archiveNote(NoteFile note) async {
+    final provider = context.read<NoteFileProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final archivedPath = await provider.archiveNoteFile(note);
+      messenger.showSnackBar(SnackBar(
+        content: Text('"${note.displayName}" moved to $archivedPath'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => provider
+              .unarchiveNoteFile(archivedPath, note)
+              .catchError((Object e) => messenger.showSnackBar(
+                  SnackBar(content: Text('Could not restore: $e')))),
+        ),
+      ));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not archive: $e')));
+    }
+  }
+
   void _renameNote(NoteFile note) {
     showDialog(
       context: context,
@@ -226,6 +313,46 @@ class _NotesViewState extends State<NotesView> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A folder row in the notes list.
+class _FolderEntry {
+  final String folder;
+  final int count;
+  const _FolderEntry(this.folder, this.count);
+}
+
+class _FolderHeader extends StatelessWidget {
+  final String folder;
+  final int count;
+  final bool open;
+  final VoidCallback onTap;
+
+  const _FolderHeader({
+    required this.folder,
+    required this.count,
+    required this.open,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      leading: Icon(open ? Icons.folder_open : Icons.folder,
+          color: theme.colorScheme.primary),
+      title: Text(folder, style: theme.textTheme.titleSmall),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$count', style: theme.textTheme.bodySmall),
+          Icon(open ? Icons.expand_less : Icons.expand_more),
+        ],
+      ),
+      onTap: onTap,
     );
   }
 }
