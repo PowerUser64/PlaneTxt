@@ -56,6 +56,11 @@ class AppConstants {
   static const String templateKey = 'daily_template';
   // Set once the first-run "where should your files live?" prompt was shown.
   static const String storageChoiceOfferedKey = 'storage_choice_offered';
+  // Minutes before an event its reminder fires; negative: no reminders.
+  static const String reminderMinutesKey = 'reminder_minutes_before';
+  // Set once the notification permission was requested (first launch).
+  static const String notificationPermissionAskedKey =
+      'notification_permission_asked';
   // NOTE: Do not prefix these with `flutter.`.
   // The `shared_preferences` Android implementation already prefixes keys with
   // `flutter.` under the hood; adding it here would result in `flutter.flutter.*`

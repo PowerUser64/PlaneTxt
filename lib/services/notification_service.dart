@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:planetxt/constants/app_constants.dart';
 import 'package:planetxt/services/in_app_reminder_scheduler.dart';
+import 'package:planetxt/services/shared_prefs_service.dart';
 import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
@@ -19,6 +23,51 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+
+  static const int defaultReminderMinutes = 60;
+
+  /// The day of the reminder the user tapped (`yyyyMMdd`): the app shows
+  /// it. Reset to null once handled.
+  final ValueNotifier<String?> openDayRequest = ValueNotifier(null);
+
+  /// Minutes before an event its reminder fires; null: reminders are off.
+  int? get reminderMinutes {
+    try {
+      final minutes =
+          SharedPrefsService.instance.getInt(AppConstants.reminderMinutesKey);
+      if (minutes == null) return defaultReminderMinutes;
+      return minutes < 0 ? null : minutes;
+    } on StateError {
+      return defaultReminderMinutes; // preferences not loaded (tests)
+    }
+  }
+
+  /// Set [reminderMinutes] and drop the reminders scheduled with the old
+  /// delay; the caller schedules them again.
+  Future<void> setReminderMinutes(int? minutes) async {
+    await SharedPrefsService.instance
+        .setInt(AppConstants.reminderMinutesKey, minutes ?? -1);
+    await cancelAllNotifications();
+  }
+
+  /// When the reminder of an event at [eventTime] fires, [minutesBefore]
+  /// ahead; null when reminders are off or that time has passed.
+  static DateTime? reminderTime(
+      DateTime eventTime, int? minutesBefore, DateTime now) {
+    if (minutesBefore == null) return null;
+    final fireAt = eventTime.subtract(Duration(minutes: minutesBefore));
+    return fireAt.isBefore(now) ? null : fireAt;
+  }
+
+  /// The day a reminder's payload (`event_<yyyyMMdd>_<id>`) points to.
+  @visibleForTesting
+  static String? dateFromPayload(String? payload) =>
+      RegExp(r'^event_(\d{8})_').firstMatch(payload ?? '')?.group(1);
+
+  void _openDayOf(String? payload) {
+    final date = dateFromPayload(payload);
+    if (date != null) openDayRequest.value = date;
+  }
 
   /// The Linux plugin cannot schedule notifications: there, reminders are
   /// fired by the app itself, while it runs.
@@ -108,10 +157,21 @@ class NotificationService {
       settings: initSettings,
       onDidReceiveNotificationResponse: (response) {
         Log.i('Notification tapped: ${response.payload}');
+        _openDayOf(response.payload);
       },
     );
 
     _initialized = true;
+
+    // Started by a tap on a reminder: open on its day.
+    try {
+      final launch = await _notifications.getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp ?? false) {
+        _openDayOf(launch!.notificationResponse?.payload);
+      }
+    } catch (e) {
+      Log.w('NotificationService: no launch details', error: e);
+    }
 
     if (Platform.isAndroid) {
       final androidPlugin = _notifications
@@ -138,6 +198,20 @@ class NotificationService {
     }
   }
 
+  /// Ask for the notification permission on the first launch only: after
+  /// that, the system settings decide, rather than a prompt at every start.
+  Future<void> requestPermissionsOnce() async {
+    final prefs = SharedPrefsService.instance;
+    if (prefs.getBool(AppConstants.notificationPermissionAskedKey) ?? false) {
+      return;
+    }
+    await prefs.setBool(AppConstants.notificationPermissionAskedKey, true);
+    await requestPermissions();
+  }
+
+  /// Reminders are scheduled as inexact alarms, so the exact-alarm access
+  /// is not asked for here (it opened the system settings at every start);
+  /// the home screen widget asks for it from Widget Health.
   Future<bool> requestPermissions() async {
     if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
       return true;
@@ -146,15 +220,6 @@ class NotificationService {
     try {
       final status = await Permission.notification.request();
       Log.i('NotificationService: POST_NOTIFICATIONS=$status');
-
-      if (Platform.isAndroid) {
-        final exactAlarmStatus = await Permission.scheduleExactAlarm.status;
-        if (!exactAlarmStatus.isGranted) {
-          final newStatus = await Permission.scheduleExactAlarm.request();
-          Log.i('NotificationService: SCHEDULE_EXACT_ALARM=$newStatus');
-        }
-      }
-
       return status.isGranted;
     } catch (e) {
       Log.e('NotificationService: permission request failed', error: e);
@@ -284,12 +349,10 @@ class NotificationService {
   }) async {
     if (!_initialized) await initialize();
 
-    // Notification fires 1 hour before event
-    final notificationTime = eventDateTime.subtract(const Duration(hours: 1));
-
-    if (notificationTime.isBefore(DateTime.now())) {
-      Log.d(
-          'NotificationService: skip past notification for "$title" at $notificationTime');
+    final notificationTime =
+        reminderTime(eventDateTime, reminderMinutes, DateTime.now());
+    if (notificationTime == null) {
+      Log.d('NotificationService: no reminder for "$title" (off or past)');
       return;
     }
 

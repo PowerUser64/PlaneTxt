@@ -6,6 +6,7 @@ import 'package:planetxt/providers/directory_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/screens/preferences/debug_section.dart';
 import 'package:planetxt/screens/preferences/header_patterns_section.dart';
+import 'package:planetxt/screens/preferences/reminders_section.dart';
 import 'package:planetxt/screens/preferences/storage_section.dart';
 import 'package:planetxt/widgets/theme_selector.dart';
 import 'package:provider/provider.dart';
@@ -86,6 +87,12 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                   );
                 },
               ),
+          ]),
+
+          const Divider(),
+
+          _buildSection(context, title: 'Reminders', children: [
+            const RemindersTile(),
           ]),
 
           const Divider(),

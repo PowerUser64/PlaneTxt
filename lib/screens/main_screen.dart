@@ -41,13 +41,24 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    NotificationService().openDayRequest.addListener(_openRequestedDay);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeProviders();
     });
   }
 
+  /// A reminder was tapped: show its day.
+  void _openRequestedDay() {
+    final request = NotificationService().openDayRequest;
+    final date = request.value;
+    if (date == null || !mounted) return;
+    request.value = null;
+    _navigateToDate(date);
+  }
+
   @override
   void dispose() {
+    NotificationService().openDayRequest.removeListener(_openRequestedDay);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -139,7 +150,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       // first paint (platform channels + possible system dialog).
       final notificationService = NotificationService();
       await notificationService.initialize();
-      await notificationService.requestPermissions();
+      await notificationService.requestPermissionsOnce();
 
       if (!mounted) return;
 

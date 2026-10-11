@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -34,6 +35,11 @@ class SharedPrefsService {
       // Best effort: starting with default preferences is acceptable.
     }
   }
+
+  /// Use [prefs] (from SharedPreferences.setMockInitialValues), skipping the
+  /// legacy migration, which would read the real home directory.
+  @visibleForTesting
+  static void useForTesting(SharedPreferences prefs) => _instance = prefs;
 
   /// Returns the cached SharedPreferences instance.
   /// Throws if [initialize] was not called first.

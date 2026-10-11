@@ -22,7 +22,7 @@ PlaneTxt (formerly Planova) is the successor of MOrg: it replaces the calendar.t
 - **Calendar view**: a month calendar with the events and tasks of the selected day below it. Days with content show colored markers.
 - **Daily files**: each day is a Markdown file with Events, Todos, Logs and Notes sections. The template is configurable.
 - **Todos**: tap a todo to check or uncheck it. Refill carries unfinished todos from any previous day over to today.
-- **Events**: `- @09:30 Team standup` becomes a timed event, with a notification one hour before it starts. On Linux, notifications only fire while PlaneTxt is running.
+- **Events**: `- @09:30 Team standup` becomes a timed event, with a reminder before it starts: one hour by default, adjustable or off in Settings. Tapping the reminder opens its day. On Linux, reminders only fire while PlaneTxt is running.
 - **Quick add**: add an event, a todo or a log to a day without opening the editor.
 - **Notes**: a searchable list of notes grouped in folders you can fold, with share, archive, rename and delete.
 - **Markdown editor**: formatting toolbar, auto-indent and todo handling.
