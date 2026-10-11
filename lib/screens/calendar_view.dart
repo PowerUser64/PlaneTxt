@@ -6,7 +6,6 @@ import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
-import 'package:planetxt/utils/daily_content_helper.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
 import 'package:planetxt/widgets/calendar_day_widget.dart';
@@ -28,11 +27,37 @@ class _CalendarViewState extends State<CalendarView> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   final Set<String> _pendingToggles = {};
+  late final DailyFileProvider _dailyFileProvider;
 
   @override
   void initState() {
     super.initState();
-    _selectedDay = DateTime.now();
+    _dailyFileProvider = context.read<DailyFileProvider>();
+    // The day picked last (or by an ICS import before this view existed).
+    final selected = _dailyFileProvider.selectedDate;
+    _selectedDay =
+        selected.isEmpty ? DateTime.now() : _parseDateFromString(selected);
+    _focusedDay = _selectedDay!;
+    _dailyFileProvider.addListener(_followSelectedDate);
+  }
+
+  @override
+  void dispose() {
+    _dailyFileProvider.removeListener(_followSelectedDate);
+    super.dispose();
+  }
+
+  /// Show the day selected from outside this view: after an ICS import,
+  /// the app opens on the imported day.
+  void _followSelectedDate() {
+    final date = _dailyFileProvider.selectedDate;
+    if (date.isEmpty || date == _formatDate(_selectedDay!)) return;
+    final day = _parseDateFromString(date);
+    setState(() {
+      _selectedDay = day;
+      _focusedDay = day;
+    });
+    _revalidate(date);
   }
 
   @override
@@ -171,11 +196,16 @@ class _CalendarViewState extends State<CalendarView> {
 
   void _loadDailyContent(DateTime day) {
     final dateString = _formatDate(day);
-    final provider = context.read<DailyFileProvider>();
-    provider.setSelectedDate(dateString);
-    // Revalidate the selected day against disk - the startup fast path only
-    // refreshes today, so another date may still show stale cached content.
-    unawaited(provider.ensureDailyFileLoaded(dateString).catchError((Object e) {
+    _dailyFileProvider.setSelectedDate(dateString);
+    _revalidate(dateString);
+  }
+
+  /// Revalidate [dateString] against disk - the startup fast path only
+  /// refreshes today, so another date may still show stale cached content.
+  void _revalidate(String dateString) {
+    unawaited(_dailyFileProvider
+        .ensureDailyFileLoaded(dateString)
+        .catchError((Object e) {
       Log.e('❌ CalendarView: Cannot read daily file $dateString', error: e);
       return null;
     }));
@@ -227,18 +257,12 @@ class _CalendarViewState extends State<CalendarView> {
       builder: (dialogContext) => QuickAddModal(
         selectedDate: _selectedDay!,
         onAdd: (content, type) {
-          String insert(String current) => switch (type) {
-                QuickAddType.event => DailyContentHelper.insertAfterLastEvent(
-                    current, content, themeProvider.eventHeaderRegex),
-                QuickAddType.todo => DailyContentHelper.insertAfterLastTodo(
-                    current, content, themeProvider.todoHeaderRegex),
-                QuickAddType.log => DailyContentHelper.insertAtEndOfSection(
-                    current, content, themeProvider.logHeaderRegex),
-              };
           // Applied to the file as it is when saving, not as it was when
           // the dialog opened: a sync landing meanwhile is kept.
           dailyFileProvider
-              .updateDailyFile(dateString, insert,
+              .updateDailyFile(dateString,
+                  (current) =>
+                      insertQuickAdd(current, content, type, themeProvider),
                   template: themeProvider.dailyTemplate)
               .catchError((Object e) {
             if (context.mounted) _showSaveError(context, e);

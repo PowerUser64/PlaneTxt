@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:planetxt/providers/theme_provider.dart';
+import 'package:planetxt/utils/daily_content_helper.dart';
 
 enum QuickAddType {
   event,
@@ -7,14 +9,33 @@ enum QuickAddType {
   log,
 }
 
+/// Insert the quick-add [line] of [type] into the day's [content], in the
+/// section [theme]'s header patterns point to.
+String insertQuickAdd(
+        String content, String line, QuickAddType type, ThemeProvider theme) =>
+    switch (type) {
+      QuickAddType.event => DailyContentHelper.insertAfterLastEvent(
+          content, line, theme.eventHeaderRegex),
+      QuickAddType.todo => DailyContentHelper.insertAfterLastTodo(
+          content, line, theme.todoHeaderRegex),
+      QuickAddType.log => DailyContentHelper.insertAtEndOfSection(
+          content, line, theme.logHeaderRegex),
+    };
+
 class QuickAddModal extends StatefulWidget {
   final DateTime selectedDate;
   final Function(String content, QuickAddType type) onAdd;
+
+  /// Prefilled title, e.g. text shared from another app.
+  final String initialText;
+  final QuickAddType initialType;
 
   const QuickAddModal({
     super.key,
     required this.selectedDate,
     required this.onAdd,
+    this.initialText = '',
+    this.initialType = QuickAddType.event,
   });
 
   @override
@@ -22,8 +43,9 @@ class QuickAddModal extends StatefulWidget {
 }
 
 class _QuickAddModalState extends State<QuickAddModal> {
-  QuickAddType _selectedType = QuickAddType.event;
-  final TextEditingController _titleController = TextEditingController();
+  late QuickAddType _selectedType = widget.initialType;
+  late final TextEditingController _titleController =
+      TextEditingController(text: widget.initialText);
   DateTime _selectedDateTime = DateTime.now();
   TimeOfDay _selectedTime = TimeOfDay.now();
 

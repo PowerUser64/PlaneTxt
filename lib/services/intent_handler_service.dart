@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:planetxt/models/calendar_event.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/services/ics_parser_service.dart';
 import 'package:planetxt/utils/daily_content_helper.dart';
 import 'package:planetxt/utils/logger.dart';
+import 'package:planetxt/widgets/quick_add_modal.dart';
 import 'package:provider/provider.dart';
 
 class IntentHandlerService {
@@ -28,7 +30,11 @@ class IntentHandlerService {
       if (sharedText != null && sharedText.isNotEmpty) {
         Log.i('📅 IntentHandlerService: Received shared text intent');
         if (!context.mounted) return null;
-        return await _handleIcsContent(context, sharedText);
+        // A calendar is imported; any other text can become a todo, an
+        // event or a log of today.
+        return sharedText.contains('BEGIN:VCALENDAR')
+            ? await _handleIcsContent(context, sharedText)
+            : await _handleSharedText(context, sharedText);
       }
 
       // Check for shared URI (ICS file)
@@ -100,8 +106,9 @@ class IntentHandlerService {
         Log.w('⚠️  IntentHandlerService: Invalid ICS content format');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Invalid ICS calendar format'),
-              duration: Duration(seconds: 2)),
+              content: Text('This is not a calendar file (.ics): nothing '
+                  'was imported'),
+              duration: Duration(seconds: 3)),
         );
         return null;
       }
@@ -140,6 +147,45 @@ class IntentHandlerService {
             content: Text('Error processing calendar: ${e.toString()}'),
             duration: Duration(seconds: 2)),
       );
+      return null;
+    }
+  }
+
+  /// Offer to add [text], shared from another app, to today: as a todo by
+  /// default. Returns today's date once it is saved.
+  static Future<String?> _handleSharedText(
+      BuildContext context, String text) async {
+    // Looked up before the dialog: the save runs after it closed.
+    final dailyFileProvider = context.read<DailyFileProvider>();
+    final themeProvider = context.read<ThemeProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final today = DateTime.now();
+    final date = DateFormat('yyyyMMdd').format(today);
+    Future<void>? saving;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => QuickAddModal(
+        selectedDate: today,
+        // One line in the daily file.
+        initialText: text.replaceAll(RegExp(r'\s+'), ' ').trim(),
+        initialType: QuickAddType.todo,
+        onAdd: (line, type) => saving = dailyFileProvider.updateDailyFile(
+          date,
+          (content) => insertQuickAdd(content, line, type, themeProvider),
+          template: themeProvider.dailyTemplate,
+        ),
+      ),
+    );
+    if (saving == null) return null; // dismissed
+    try {
+      await saving;
+      return date;
+    } catch (e) {
+      Log.e('❌ IntentHandlerService: Error adding shared text', error: e);
+      messenger.showSnackBar(SnackBar(
+        content: Text('Could not save: $e'),
+        duration: const Duration(seconds: 4),
+      ));
       return null;
     }
   }
