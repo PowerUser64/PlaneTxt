@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:planetxt/services/in_app_reminder_scheduler.dart';
 import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
@@ -17,6 +19,35 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+
+  /// The Linux plugin cannot schedule notifications: there, reminders are
+  /// fired by the app itself, while it runs.
+  late final InAppReminderScheduler? _inAppReminders = Platform.isLinux
+      ? InAppReminderScheduler(onFire: _showInAppReminder)
+      : null;
+
+  void _showInAppReminder(InAppReminder reminder) {
+    unawaited(_notifications
+        .show(
+          id: reminder.id,
+          title: reminder.title,
+          body: reminder.body,
+          notificationDetails: _notificationDetails,
+          payload: reminder.payload,
+        )
+        .catchError((Object e) =>
+            Log.e('NotificationService: could not show reminder', error: e)));
+  }
+
+  /// Scheduled reminders, wherever they wait.
+  Future<List<PendingNotificationRequest>> _pendingRequests() async {
+    final inApp = _inAppReminders;
+    if (inApp == null) return _notifications.pendingNotificationRequests();
+    return [
+      for (final r in inApp.pending)
+        PendingNotificationRequest(r.id, r.title, r.body, r.payload),
+    ];
+  }
 
   static const String _channelId = 'event_reminders';
   static const String _channelName = 'Event Reminders';
@@ -209,7 +240,7 @@ class NotificationService {
     }
 
     // Verify all are pending
-    final pending = await _notifications.pendingNotificationRequests();
+    final pending = await _pendingRequests();
     Log.i(
         'NotificationService: ${pending.length} pending after scheduling tests');
     for (final n in pending) {
@@ -262,12 +293,27 @@ class NotificationService {
       return;
     }
 
-    final scheduledTZ = tz.TZDateTime.from(notificationTime, tz.local);
-    final mode = await _getBestScheduleMode();
-
     final eventHour = eventDateTime.hour.toString().padLeft(2, '0');
     final eventMinute = eventDateTime.minute.toString().padLeft(2, '0');
     final timeStr = '$eventHour:$eventMinute';
+
+    final inApp = _inAppReminders;
+    if (inApp != null) {
+      inApp.schedule(InAppReminder(
+        id: id,
+        fireAt: notificationTime,
+        eventTime: eventDateTime,
+        title: '$timeStr - $title',
+        body: description,
+        payload: 'event_${date}_$id',
+      ));
+      Log.i('NotificationService: in-app reminder id=$id "$title" at '
+          '$notificationTime');
+      return;
+    }
+
+    final scheduledTZ = tz.TZDateTime.from(notificationTime, tz.local);
+    final mode = await _getBestScheduleMode();
 
     try {
       await _notifications.zonedSchedule(
@@ -281,7 +327,7 @@ class NotificationService {
       );
 
       // Verify the notification is actually pending
-      final pending = await _notifications.pendingNotificationRequests();
+      final pending = await _pendingRequests();
       final found = pending.any((n) => n.id == id);
 
       Log.i(
@@ -309,23 +355,24 @@ class NotificationService {
   }
 
   Future<void> cancelNotification(int id) async {
+    _inAppReminders?.cancel(id);
     await _notifications.cancel(id: id);
   }
 
   Future<void> cancelAllNotifications() async {
+    _inAppReminders?.cancelAll();
     await _notifications.cancelAll();
   }
 
-  Future<List<PendingNotificationRequest>> getPendingNotifications() async {
-    return await _notifications.pendingNotificationRequests();
-  }
+  Future<List<PendingNotificationRequest>> getPendingNotifications() =>
+      _pendingRequests();
 
   Future<void> cancelNotificationsForDate(String date) async {
-    final pending = await _notifications.pendingNotificationRequests();
+    final pending = await _pendingRequests();
     for (final n in pending) {
       final payload = n.payload ?? '';
       if (payload.startsWith('event_${date}_')) {
-        await _notifications.cancel(id: n.id);
+        await cancelNotification(n.id);
       }
     }
   }
@@ -357,7 +404,7 @@ class NotificationService {
       }
     }
 
-    final pending = await _notifications.pendingNotificationRequests();
+    final pending = await _pendingRequests();
     lines.add('Pending notifications: ${pending.length}');
     for (final n in pending) {
       lines.add('  id=${n.id} title="${n.title}" payload=${n.payload}');
@@ -376,7 +423,7 @@ class NotificationService {
     if (!_initialized) await initialize();
 
     try {
-      final pending = await _notifications.pendingNotificationRequests();
+      final pending = await _pendingRequests();
       if (pending.isEmpty) return;
 
       Log.d(
@@ -426,7 +473,7 @@ class NotificationService {
 
         final parts = payload.split('_');
         if (parts.length < 3) {
-          await _notifications.cancel(id: notification.id);
+          await cancelNotification(notification.id);
           removedCount++;
           continue;
         }
@@ -442,7 +489,7 @@ class NotificationService {
             final day = int.parse(date.substring(6, 8));
             final eventDate = DateTime(year, month, day);
             if (eventDate.add(const Duration(hours: 25)).isBefore(now)) {
-              await _notifications.cancel(id: notification.id);
+              await cancelNotification(notification.id);
               removedCount++;
               continue;
             }
@@ -451,7 +498,7 @@ class NotificationService {
 
         // Remove if date file no longer exists
         if (!validEventsByDate.containsKey(date)) {
-          await _notifications.cancel(id: notification.id);
+          await cancelNotification(notification.id);
           removedCount++;
           continue;
         }
@@ -460,7 +507,7 @@ class NotificationService {
         if (notificationId != null) {
           final validEvents = validEventsByDate[date];
           if (validEvents == null || !validEvents.contains(notificationId)) {
-            await _notifications.cancel(id: notification.id);
+            await cancelNotification(notification.id);
             removedCount++;
             continue;
           }
