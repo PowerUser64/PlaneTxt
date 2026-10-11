@@ -128,7 +128,9 @@ class Log {
 
     // Console logging. Also active in release builds (INFO level and up,
     // per _currentLevel): being able to read startup/storage logs from a
-    // device via logcat is worth the small overhead.
+    // device via logcat is worth the small overhead. Logcat ends up in bug
+    // reports, so INFO and up never carry the user's text (titles, todos,
+    // shared content): counts, dates and ids only.
     if (_enableConsoleLogging) {
       if (level == LogLevel.error) {
         debugPrint(fullMessage);

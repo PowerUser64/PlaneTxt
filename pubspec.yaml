@@ -34,8 +34,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/
+  # assets/ only feeds flutter_launcher_icons below: the app itself loads
+  # none of it, so it is not bundled.
 
 flutter_launcher_icons:
   ios: true

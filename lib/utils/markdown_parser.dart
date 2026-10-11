@@ -135,7 +135,7 @@ class MarkdownParser {
           date: date,
         ));
       } catch (e) {
-        Log.e('MarkdownParser: error parsing event "${lines[i]}"', error: e);
+        Log.e('MarkdownParser: error parsing event on line ${i + 1}', error: e);
       }
     }
     return events;

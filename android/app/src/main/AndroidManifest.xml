@@ -10,11 +10,9 @@
     <!-- Wake lock required by flutter_local_notifications to deliver scheduled notifications -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Exact alarm permission for precise notifications (Android 12+) -->
+    <!-- Exact alarms (Android 12+) for the home screen widget's midnight
+         refresh; event reminders are inexact and do not need it. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-
-    <!-- Required for alarmClock scheduling mode on Android 14+ -->
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- Boot completed permission for widget auto-refresh after reboot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -22,6 +20,7 @@
     <application
         android:label="PlaneTxt"
         android:name="${applicationName}"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

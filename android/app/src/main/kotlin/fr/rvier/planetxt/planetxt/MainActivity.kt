@@ -115,11 +115,11 @@ class MainActivity : FlutterActivity() {
                 when (intent.type) {
                     "text/plain" -> {
                         sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
-                        Log.d("MainActivity", "Text/plain content received: ${sharedText?.substring(0, minOf(50, sharedText?.length ?: 0))}")
+                        Log.d("MainActivity", "Text/plain content received: ${sharedText?.length ?: 0} characters")
                     }
                     "text/calendar", "text/x-vcalendar", "application/ics", "application/octet-stream" -> {
                         sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
-                        Log.d("MainActivity", "Calendar content received: ${sharedText?.substring(0, minOf(50, sharedText?.length ?: 0))}")
+                        Log.d("MainActivity", "Calendar content received: ${sharedText?.length ?: 0} characters")
                     }
                     else -> {
                         Log.d("MainActivity", "Unknown MIME type: ${intent.type}")
@@ -141,7 +141,7 @@ class MainActivity : FlutterActivity() {
                         val startTime = intent.getLongExtra("beginTime", 0)
                         val endTime = intent.getLongExtra("endTime", 0)
                         
-                        Log.d("MainActivity", "Event insertion requested: title=$eventTitle, text=$eventText")
+                        Log.d("MainActivity", "Event insertion requested")
                         
                         // Create ICS content from the event data
                         sharedText = createIcsFromEventData(eventTitle, eventText, startTime, endTime)
@@ -160,7 +160,7 @@ class MainActivity : FlutterActivity() {
                         val eventTitle = intent.getStringExtra(Intent.EXTRA_TITLE)
                         val eventText = intent.getStringExtra(Intent.EXTRA_TEXT)
                         
-                        Log.d("MainActivity", "Event edit requested: id=$eventId, title=$eventTitle")
+                        Log.d("MainActivity", "Event edit requested: id=$eventId")
                         
                         // For now, treat edit as insert
                         sharedText = createIcsFromEventData(eventTitle, eventText, 0, 0)

@@ -132,7 +132,7 @@ class IcsParserService {
 
     if (dtStart == null || summary.isEmpty) {
       Log.w(
-          '⚠️  IcsParserService: VEVENT missing required properties (DTSTART: ${dtStart?.value}, SUMMARY: $summary)');
+          '⚠️  IcsParserService: VEVENT missing required properties (DTSTART: ${dtStart?.value}, SUMMARY empty: ${summary.isEmpty})');
       return null;
     }
 

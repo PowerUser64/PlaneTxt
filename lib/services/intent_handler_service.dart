@@ -31,9 +31,7 @@ class IntentHandlerService {
       // Check for shared text (ICS content)
       final sharedText = await _channel.invokeMethod<String>('getSharedText');
       Log.i(
-          '📅 IntentHandlerService: Shared text received: ${sharedText != null ? (sharedText.length > 50 ? '${sharedText.substring(0, 50)}...' : sharedText) : 'null'}');
-      Log.i(
-          '📅 IntentHandlerService: Shared text from Android: ${sharedText != null ? (sharedText.length > 100 ? sharedText.substring(0, 100) : sharedText) : 'null'}');
+          '📅 IntentHandlerService: Shared text: ${sharedText == null ? 'none' : '${sharedText.length} characters'}');
 
       if (sharedText != null && sharedText.isNotEmpty) {
         Log.i('📅 IntentHandlerService: Received shared text intent');
@@ -102,8 +100,6 @@ class IntentHandlerService {
     try {
       Log.i(
           '📅 IntentHandlerService: Received ICS content (${icsContent.length} characters)');
-      Log.i(
-          '📅 IntentHandlerService: First 200 chars: ${icsContent.length > 200 ? icsContent.substring(0, 200) : icsContent}');
 
       // Validate ICS content
       Log.i('📅 IntentHandlerService: Validating ICS content...');
@@ -137,13 +133,6 @@ class IntentHandlerService {
               duration: Duration(seconds: 2)),
         );
         return null;
-      }
-
-      // Log event details
-      for (var i = 0; i < events.length && i < 3; i++) {
-        final event = events[i];
-        Log.i(
-            '📅 IntentHandlerService: Event ${i + 1}: ${event.title} at ${event.time} on ${event.date}');
       }
 
       // Show confirmation dialog

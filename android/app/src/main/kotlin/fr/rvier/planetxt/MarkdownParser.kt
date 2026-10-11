@@ -36,11 +36,10 @@ object MarkdownParser {
                         if (eventTitle.isNotEmpty()) {
                             val event = "$time $eventTitle"
                             events.add(event)
-                            Log.d(TAG, "Parsed event: $event")
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing event line: $line", e)
+                    Log.e(TAG, "Error parsing an event line", e)
                 }
             }
         }
@@ -67,7 +66,6 @@ object MarkdownParser {
                     val status = if (isCompleted) "✓" else "○"
                     val todo = "$status $text"
                     todos.add(todo)
-                    Log.d(TAG, "Parsed todo: $todo")
                 }
             }
         }

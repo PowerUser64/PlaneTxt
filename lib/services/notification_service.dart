@@ -309,7 +309,7 @@ class NotificationService {
     Log.i(
         'NotificationService: ${pending.length} pending after scheduling tests');
     for (final n in pending) {
-      Log.i('  pending: id=${n.id} title="${n.title}"');
+      Log.i('  pending: id=${n.id}');
     }
   }
 
@@ -370,7 +370,7 @@ class NotificationService {
         body: description,
         payload: 'event_${date}_$id',
       ));
-      Log.i('NotificationService: in-app reminder id=$id "$title" at '
+      Log.i('NotificationService: in-app reminder id=$id at '
           '$notificationTime');
       return;
     }
@@ -394,9 +394,9 @@ class NotificationService {
       final found = pending.any((n) => n.id == id);
 
       Log.i(
-          'NotificationService: scheduled id=$id "$title" at $scheduledTZ mode=$mode verified=$found');
+          'NotificationService: scheduled id=$id at $scheduledTZ mode=$mode verified=$found');
     } catch (e) {
-      Log.e('NotificationService: FAILED to schedule "$title"', error: e);
+      Log.e('NotificationService: FAILED to schedule id=$id', error: e);
       // Try inexact as last resort
       if (mode != AndroidScheduleMode.inexactAllowWhileIdle) {
         try {
@@ -409,7 +409,7 @@ class NotificationService {
             payload: 'event_${date}_$id',
             androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
           );
-          Log.i('NotificationService: scheduled "$title" with inexact fallback');
+          Log.i('NotificationService: scheduled id=$id with inexact fallback');
         } catch (e2) {
           Log.e('NotificationService: inexact fallback also failed', error: e2);
         }
