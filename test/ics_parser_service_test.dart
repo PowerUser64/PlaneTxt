@@ -102,6 +102,68 @@ END:VEVENT
     });
   });
 
+  group('IcsParserService real-world calendars', () {
+    test('converts a TZID time to the device time', () {
+      final ics = _wrap('''
+BEGIN:VEVENT
+DTSTART;TZID=America/New_York:20261225T100000
+SUMMARY:Call with New York
+END:VEVENT
+''');
+      final event = IcsParserService.parseIcsContent(ics).single;
+      expect(event.time, DateTime.utc(2026, 12, 25, 15, 0).toLocal());
+    });
+
+    test('keeps the written time for an unknown zone', () {
+      final ics = _wrap('''
+BEGIN:VEVENT
+DTSTART;TZID="Romance Standard Time":20261225T100000
+SUMMARY:Outlook meeting
+END:VEVENT
+''');
+      final event = IcsParserService.parseIcsContent(ics).single;
+      expect(event.time, DateTime(2026, 12, 25, 10, 0));
+    });
+
+    test('unfolds long lines and unescapes text', () {
+      final ics = _wrap('BEGIN:VEVENT\r\n'
+          'DTSTART:20261225T103000\r\n'
+          'SUMMARY:Review\\, part 1\r\n'
+          'DESCRIPTION:Join on Zo\r\n'
+          ' om\\nRoom 4\\; floor 2\r\n'
+          'END:VEVENT\r\n');
+      final event = IcsParserService.parseIcsContent(ics).single;
+      expect(event.title, 'Review, part 1');
+      expect(event.description, 'Join on Zoom\nRoom 4; floor 2');
+    });
+
+    test('ignores the description of a reminder', () {
+      final ics = _wrap('''
+BEGIN:VEVENT
+DTSTART:20261225T103000
+SUMMARY:Dentist
+DESCRIPTION:Bring the card
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Reminder
+END:VALARM
+END:VEVENT
+''');
+      final event = IcsParserService.parseIcsContent(ics).single;
+      expect(event.description, 'Bring the card');
+    });
+
+    test('keeps a multi-line title on one line', () {
+      final ics = _wrap('''
+BEGIN:VEVENT
+DTSTART:20261225T103000
+SUMMARY:Team\\nlunch
+END:VEVENT
+''');
+      expect(IcsParserService.parseIcsContent(ics).single.title, 'Team lunch');
+    });
+  });
+
   group('IcsParserService.isValidIcsContent', () {
     test('accepts a minimal valid calendar', () {
       expect(IcsParserService.isValidIcsContent(_wrap('')), isTrue);

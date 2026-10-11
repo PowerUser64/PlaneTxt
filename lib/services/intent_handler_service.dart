@@ -243,24 +243,36 @@ class IntentHandlerService {
       }
 
       // Process each date's events, re-applied to the file as it is on
-      // disk when saving (a sync landing meanwhile is kept).
-      final eventHeaderRegex = RegExp(themeProvider.eventHeaderRegex);
+      // disk when saving (a sync landing meanwhile is kept). Events the
+      // day already has are skipped: importing a file twice is harmless.
+      var added = 0;
       for (final entry in eventsByDate.entries) {
+        var addedToDay = 0;
         await dailyFileProvider.updateDailyFile(
           entry.key,
-          (content) =>
-              _addEventsToContent(content, entry.value, eventHeaderRegex),
+          (content) {
+            final result = DailyContentHelper.insertEvents(
+                content, entry.value, themeProvider.eventHeaderRegex);
+            addedToDay = result.added;
+            return result.content;
+          },
           template: themeProvider.dailyTemplate,
         );
+        added += addedToDay;
       }
 
-      Log.i(
-          '📅 IntentHandlerService: Successfully added ${events.length} events to daily files');
+      final skipped = events.length - added;
+      Log.i('📅 IntentHandlerService: Added $added event(s) to daily files, '
+          '$skipped already there');
       messenger
         ..clearSnackBars()
         ..showSnackBar(
           SnackBar(
-            content: Text('Successfully added ${events.length} event(s)'),
+            content: Text(added == 0
+                ? 'These events are already in PlaneTxt'
+                : skipped == 0
+                    ? 'Added $added event(s)'
+                    : 'Added $added event(s), $skipped already there'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -275,30 +287,5 @@ class IntentHandlerService {
       );
       return false;
     }
-  }
-
-  /// Add events to daily content at appropriate positions
-  static String _addEventsToContent(
-      String content, List<CalendarEvent> events, RegExp eventHeaderRegex) {
-    events.sort((a, b) => a.time.compareTo(b.time));
-
-    // Insert events one at a time after the last event
-    for (final event in events) {
-      final eventLine = '- @${event.formattedTime} ${event.title}';
-      content = DailyContentHelper.insertAfterLastEvent(
-          content, eventLine, eventHeaderRegex.pattern);
-
-      // Add description if present
-      if (event.description.isNotEmpty) {
-        final descriptionLines = event.description.split('\n');
-        for (final descLine in descriptionLines) {
-          if (descLine.trim().isNotEmpty) {
-            content = '$content\n  $descLine';
-          }
-        }
-      }
-    }
-
-    return content;
   }
 }

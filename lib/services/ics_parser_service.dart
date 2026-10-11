@@ -1,5 +1,14 @@
 import 'package:planetxt/models/calendar_event.dart';
 import 'package:planetxt/utils/logger.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
+
+/// One content line of an ICS component: `NAME;PARAM=VALUE:value`.
+class _IcsProperty {
+  final Map<String, String> params;
+  final String value;
+  const _IcsProperty(this.params, this.value);
+}
 
 class IcsParserService {
   /// Parse ICS content and extract calendar events
@@ -10,12 +19,11 @@ class IcsParserService {
     try {
       Log.d('📅 IcsParserService: Starting to parse ICS content');
 
-      // Extract all VEVENT components using regex
-      final vEventComponents = _extractVEventComponents(icsContent);
+      final vEvents = _extractVEvents(_unfoldedLines(icsContent));
       Log.d(
-          '📅 IcsParserService: Found ${vEventComponents.length} VEVENT components to process');
+          '📅 IcsParserService: Found ${vEvents.length} VEVENT components to process');
 
-      for (final vEvent in vEventComponents) {
+      for (final vEvent in vEvents) {
         try {
           final event = _parseVEvent(vEvent);
           if (event != null) {
@@ -41,42 +49,96 @@ class IcsParserService {
     return events;
   }
 
-  /// Extract VEVENT components from ICS content
-  static List<String> _extractVEventComponents(String icsContent) {
-    final vEvents = <String>[];
+  /// Content lines with folding undone: RFC 5545 continues a long line on
+  /// the next one, starting with a space or a tab.
+  static List<String> _unfoldedLines(String content) => content
+      .replaceAll(RegExp(r'\r?\n[ \t]'), '')
+      .split(RegExp(r'\r?\n'));
 
-    // Use regex to find all VEVENT blocks
-    final pattern = RegExp(r'BEGIN:VEVENT([\s\S]*?)END:VEVENT');
-    final matches = pattern.allMatches(icsContent);
-
-    for (final match in matches) {
-      vEvents.add('BEGIN:VEVENT${match.group(1)}END:VEVENT');
+  /// The properties of each VEVENT. Those of nested components (a VALARM's
+  /// DESCRIPTION, say) are left out, and the first occurrence of a
+  /// property wins.
+  static List<Map<String, _IcsProperty>> _extractVEvents(List<String> lines) {
+    final vEvents = <Map<String, _IcsProperty>>[];
+    Map<String, _IcsProperty>? current;
+    var depth = 0; // components open inside the current VEVENT
+    for (final raw in lines) {
+      final line = raw.trimRight();
+      final upper = line.toUpperCase();
+      if (current == null) {
+        if (upper == 'BEGIN:VEVENT') {
+          current = {};
+          depth = 0;
+        }
+        continue;
+      }
+      if (upper.startsWith('BEGIN:')) {
+        depth++;
+      } else if (upper.startsWith('END:')) {
+        if (depth == 0) {
+          vEvents.add(current);
+          current = null;
+        } else {
+          depth--;
+        }
+      } else if (depth == 0) {
+        final property = _parseProperty(line);
+        if (property != null) current.putIfAbsent(property.$1, () => property.$2);
+      }
     }
-
     return vEvents;
   }
 
-  /// Parse a VEVENT component into a CalendarEvent
-  static CalendarEvent? _parseVEvent(String vEventContent) {
-    final properties = _parseIcsProperties(vEventContent);
+  /// Split `NAME;PARAM=VALUE:value` at the first colon outside quotes: a
+  /// quoted parameter value may hold one.
+  static (String, _IcsProperty)? _parseProperty(String line) {
+    var inQuotes = false;
+    for (var i = 0; i < line.length; i++) {
+      final c = line[i];
+      if (c == '"') {
+        inQuotes = !inQuotes;
+      } else if (c == ':' && !inQuotes) {
+        final head = line.substring(0, i).split(';');
+        if (head.first.isEmpty) return null;
+        final params = <String, String>{};
+        for (final param in head.skip(1)) {
+          final eq = param.indexOf('=');
+          if (eq > 0) {
+            params[param.substring(0, eq).toUpperCase()] =
+                param.substring(eq + 1).replaceAll('"', '');
+          }
+        }
+        return (
+          head.first.toUpperCase(),
+          _IcsProperty(params, line.substring(i + 1)),
+        );
+      }
+    }
+    return null;
+  }
 
+  /// Parse a VEVENT component into a CalendarEvent
+  static CalendarEvent? _parseVEvent(Map<String, _IcsProperty> properties) {
     Log.d(
         '📅 IcsParserService: VEVENT properties: ${properties.keys.join(", ")}');
 
-    // Extract required properties
     final dtStart = properties['DTSTART'];
-    final summary = properties['SUMMARY'];
+    // One line in the daily file: no line breaks in the title.
+    final summary = properties['SUMMARY'] == null
+        ? ''
+        : _unescape(properties['SUMMARY']!.value)
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
 
-    if (dtStart == null || summary == null) {
+    if (dtStart == null || summary.isEmpty) {
       Log.w(
-          '⚠️  IcsParserService: VEVENT missing required properties (DTSTART: $dtStart, SUMMARY: $summary)');
+          '⚠️  IcsParserService: VEVENT missing required properties (DTSTART: ${dtStart?.value}, SUMMARY: $summary)');
       return null;
     }
 
-    // Parse datetime
     final eventDateTime = _parseIcsDateTime(dtStart);
     if (eventDateTime == null) {
-      Log.w('⚠️  IcsParserService: Failed to parse DTSTART: $dtStart');
+      Log.w('⚠️  IcsParserService: Failed to parse DTSTART: ${dtStart.value}');
       return null;
     }
 
@@ -84,8 +146,8 @@ class IcsParserService {
     final date =
         '${eventDateTime.year}${eventDateTime.month.toString().padLeft(2, '0')}${eventDateTime.day.toString().padLeft(2, '0')}';
 
-    // Extract optional properties
-    final description = properties['DESCRIPTION'] ?? '';
+    final description =
+        _unescape(properties['DESCRIPTION']?.value ?? '').trim();
 
     Log.d(
         '📅 IcsParserService: Parsed event - Title: $summary, Date: $date, Time: $eventDateTime');
@@ -98,97 +160,61 @@ class IcsParserService {
     );
   }
 
-  /// Parse ICS properties from component content
-  static Map<String, String> _parseIcsProperties(String componentContent) {
-    final properties = <String, String>{};
-    final lines = componentContent.split('\n');
+  /// Undo the escaping of RFC 5545 text values: `\n`, `\,`, `\;`, `\\`.
+  static String _unescape(String value) => value.replaceAllMapped(
+        RegExp(r'\\([nN,;\\])'),
+        (m) => switch (m[1]) { 'n' || 'N' => '\n', final c => c! },
+      );
 
-    for (final line in lines) {
-      final trimmedLine = line.trim();
+  static final RegExp _dateTime =
+      RegExp(r'^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$');
 
-      // Skip BEGIN/END lines and empty lines
-      if (trimmedLine.isEmpty ||
-          trimmedLine.startsWith('BEGIN:') ||
-          trimmedLine.startsWith('END:')) {
-        continue;
-      }
-
-      // Split property name and value
-      final colonIndex = trimmedLine.indexOf(':');
-      if (colonIndex > 0) {
-        final propertyName = trimmedLine.substring(0, colonIndex);
-        final propertyValue = trimmedLine.substring(colonIndex + 1).trim();
-
-        // Remove any parameters from property name (e.g., DTSTART;TZID=...)
-        final cleanPropertyName = propertyName.split(';')[0];
-
-        properties[cleanPropertyName] = propertyValue;
-      }
-    }
-
-    return properties;
-  }
-
-  /// Parse ICS datetime format
-  static DateTime? _parseIcsDateTime(String dateTimeStr) {
-    try {
-      // Handle different datetime formats
-      if (dateTimeStr.endsWith('Z')) {
-        // UTC format: 20231225T100000Z
-        return _parseUtcDateTime(dateTimeStr);
-      } else if (dateTimeStr.contains('T')) {
-        // Local format: 20231225T100000
-        return _parseLocalDateTime(dateTimeStr);
-      } else {
-        // Date only format: 20231225
-        return _parseDateOnly(dateTimeStr);
-      }
-    } catch (e) {
-      Log.e('❌ IcsParserService: Error parsing datetime: $dateTimeStr',
-          error: e);
+  /// Parse a DTSTART into the device's local time: a UTC time (`Z`) or a
+  /// time in its TZID zone is converted, a floating time is kept as
+  /// written, and a date without a time (all-day event) gets 09:00.
+  static DateTime? _parseIcsDateTime(_IcsProperty property) {
+    final m = _dateTime.firstMatch(property.value.trim());
+    if (m == null) {
+      Log.e('❌ IcsParserService: Error parsing datetime: ${property.value}');
       return null;
     }
-  }
+    final year = int.parse(m[1]!);
+    final month = int.parse(m[2]!);
+    final day = int.parse(m[3]!);
+    if (m[4] == null) return DateTime(year, month, day, 9, 0, 0);
 
-  /// Parse UTC datetime (ends with Z)
-  static DateTime _parseUtcDateTime(String utcDateTime) {
-    // Remove Z suffix
-    final cleanDateTime = utcDateTime.substring(0, utcDateTime.length - 1);
-
-    // Parse format: yyyyMMddTHHmmss
-    final year = int.parse(cleanDateTime.substring(0, 4));
-    final month = int.parse(cleanDateTime.substring(4, 6));
-    final day = int.parse(cleanDateTime.substring(6, 8));
-    final hour = int.parse(cleanDateTime.substring(9, 11));
-    final minute = int.parse(cleanDateTime.substring(11, 13));
-    final second = int.parse(cleanDateTime.substring(13, 15));
-
-    // Convert from UTC to local time
-    return DateTime.utc(year, month, day, hour, minute, second).toLocal();
-  }
-
-  /// Parse local datetime
-  static DateTime _parseLocalDateTime(String localDateTime) {
-    // Parse format: yyyyMMddTHHmmss
-    final year = int.parse(localDateTime.substring(0, 4));
-    final month = int.parse(localDateTime.substring(4, 6));
-    final day = int.parse(localDateTime.substring(6, 8));
-    final hour = int.parse(localDateTime.substring(9, 11));
-    final minute = int.parse(localDateTime.substring(11, 13));
-    final second = int.parse(localDateTime.substring(13, 15));
-
+    final hour = int.parse(m[4]!);
+    final minute = int.parse(m[5]!);
+    final second = int.parse(m[6] ?? '0');
+    if (m[7] != null) {
+      return DateTime.utc(year, month, day, hour, minute, second).toLocal();
+    }
+    final tzid = property.params['TZID'];
+    if (tzid != null) {
+      final converted =
+          _fromZone(tzid, year, month, day, hour, minute, second);
+      if (converted != null) return converted;
+    }
     return DateTime(year, month, day, hour, minute, second);
   }
 
-  /// Parse date only (no time component)
-  static DateTime _parseDateOnly(String dateOnly) {
-    // Parse format: yyyyMMdd
-    final year = int.parse(dateOnly.substring(0, 4));
-    final month = int.parse(dateOnly.substring(4, 6));
-    final day = int.parse(dateOnly.substring(6, 8));
-
-    // Default to 9:00 AM for all-day events
-    return DateTime(year, month, day, 9, 0, 0);
+  /// The local time of [hour]:[minute] in the IANA zone [tzid], or null if
+  /// the zone is unknown (Outlook writes Windows zone names).
+  static DateTime? _fromZone(String tzid, int year, int month, int day,
+      int hour, int minute, int second) {
+    try {
+      // Initialised once only: doing it again resets tz.local, which the
+      // notification service has set.
+      if (!tz.timeZoneDatabase.isInitialized) tz_data.initializeTimeZones();
+      final inZone = tz.TZDateTime(
+          tz.getLocation(tzid), year, month, day, hour, minute, second);
+      return DateTime.fromMillisecondsSinceEpoch(
+          inZone.millisecondsSinceEpoch);
+    } catch (e) {
+      Log.w('⚠️  IcsParserService: Unknown time zone "$tzid", keeping the '
+          'time as written', error: e);
+      return null;
+    }
   }
 
   /// Validate that the content looks like ICS format

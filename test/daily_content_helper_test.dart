@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:planetxt/models/calendar_event.dart';
 import 'package:planetxt/utils/daily_content_helper.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
 
@@ -221,6 +222,71 @@ note''';
       const content = '- [ ] a\r\n- [ ] b\r\n';
       expect(DailyContentHelper.setTodoDone(content, taskAt(content, 1), true),
           '- [ ] a\r\n- [x] b\r\n');
+    });
+  });
+  group('DailyContentHelper.insertEvents', () {
+    CalendarEvent event(int hour, String title, [String description = '']) =>
+        CalendarEvent(
+          title: title,
+          time: DateTime(2026, 10, 11, hour),
+          description: description,
+          date: '20261011',
+        );
+
+    test('puts the description right under its event', () {
+      const content = '# Events\n- @09:00 standup\n\n# Todos\n- [ ] a';
+      final result = DailyContentHelper.insertEvents(
+          content, [event(14, 'Dentist', 'Bring the card\nFloor 2')],
+          eventHeader);
+
+      expect(result.content,
+          '# Events\n- @09:00 standup\n- @14:00 Dentist\n  Bring the card\n'
+          '  Floor 2\n\n# Todos\n- [ ] a');
+      expect(result.added, 1);
+      final parsed = MarkdownParser.parseEvents('20261011', result.content);
+      expect(parsed.last.description, 'Bring the card\nFloor 2');
+    });
+
+    test('keeps the day in time order, around descriptions', () {
+      const content = '# Events\n- @08:00 run\n  river loop\n- @18:00 dinner';
+      final result = DailyContentHelper.insertEvents(
+          content, [event(12, 'Lunch'), event(7, 'Wake up')], eventHeader);
+
+      expect(result.content,
+          '# Events\n- @07:00 Wake up\n- @08:00 run\n  river loop\n'
+          '- @12:00 Lunch\n- @18:00 dinner');
+    });
+
+    test('skips the events the day already has', () {
+      const content = '# Events\n- @14:00 Dentist\n  Bring the card';
+      final result = DailyContentHelper.insertEvents(
+          content,
+          [event(14, 'Dentist', 'Bring the card'), event(16, 'Call')],
+          eventHeader);
+
+      expect(result.content,
+          '# Events\n- @14:00 Dentist\n  Bring the card\n- @16:00 Call');
+      expect(result.added, 1);
+    });
+
+    test('fills an empty section, keeping a blank line before the next',
+        () {
+      const content = '# Events\n# Todos';
+      final result =
+          DailyContentHelper.insertEvents(content, [event(9, 'A')], eventHeader);
+      expect(result.content, '# Events\n- @09:00 A\n\n# Todos');
+    });
+
+    test('appends when there is no events section', () {
+      final result = DailyContentHelper.insertEvents(
+          'free text', [event(9, 'A', 'desc')], eventHeader);
+      expect(result.content, 'free text\n\n- @09:00 A\n  desc');
+    });
+
+    test('keeps CRLF line endings', () {
+      final result = DailyContentHelper.insertEvents(
+          '# Events\r\n- @08:00 a\r\n', [event(9, 'B', 'x')], eventHeader);
+      expect(result.content, '# Events\r\n- @08:00 a\r\n- @09:00 B\r\n  x\r\n');
     });
   });
 }

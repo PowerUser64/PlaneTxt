@@ -1,3 +1,4 @@
+import 'package:planetxt/models/calendar_event.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
 
@@ -197,6 +198,98 @@ class DailyContentHelper {
     final stripTime = RegExp(r'^\s*[-*+]\s*@\d{1,2}:\d{2}\s*');
     return existing.replaceFirst(stripTime, '').trim() ==
         newEvent.replaceFirst(stripTime, '').trim();
+  }
+
+  /// Inserts [events] (an ICS import) into the events section, each with
+  /// its description indented below it, before the first event starting
+  /// later. An event the day already has (same time and title) is skipped.
+  /// Without an events section, they are appended at the end. Returns the
+  /// new content and how many events were added.
+  static ({String content, int added}) insertEvents(
+    String content,
+    List<CalendarEvent> events,
+    String eventHeaderRegex,
+  ) {
+    var added = 0;
+    final updated = _keepingLineEndings(content, (c) {
+      added = 0;
+      final lines = c.split('\n');
+      final header = _firstMatchingLine(lines, eventHeaderRegex);
+      final known = {
+        for (final line in lines)
+          if (MarkdownParser.eventLine.firstMatch(line.trim()) case final m?)
+            _eventKey(int.parse(m[1]!) * 60 + int.parse(m[2]!), m[3]!),
+      };
+      final sorted = [...events]..sort((a, b) => a.time.compareTo(b.time));
+      final appended = <String>[];
+      for (final event in sorted) {
+        final minutes = event.time.hour * 60 + event.time.minute;
+        if (!known.add(_eventKey(minutes, event.title))) continue;
+        added++;
+        final block = [
+          '- @${event.formattedTime} ${event.title}',
+          for (final line in event.description.split('\n'))
+            if (line.trim().isNotEmpty) '  ${line.trim()}',
+        ];
+        if (header < 0) {
+          appended.addAll(block);
+        } else {
+          _insertEventBlock(lines, header, minutes, block);
+        }
+      }
+      final result = lines.join('\n');
+      return appended.isEmpty
+          ? result
+          : _appendAtEnd(result, appended.join('\n'));
+    });
+    return (content: updated, added: added);
+  }
+
+  static String _eventKey(int minutes, String title) =>
+      '$minutes ${title.trim()}';
+
+  /// Index of the first line matching [pattern], -1 if none (or invalid).
+  static int _firstMatchingLine(List<String> lines, String pattern) {
+    if (pattern.isEmpty) return -1;
+    try {
+      final regex = RegExp(pattern, multiLine: true);
+      return lines.indexWhere(regex.hasMatch);
+    } on FormatException catch (e) {
+      Log.e('DailyContentHelper: invalid regex "$pattern"', error: e);
+      return -1;
+    }
+  }
+
+  /// Put [block] in the events section under [header]: before the first
+  /// event starting after [minutes], else after the last event and its
+  /// description, else right below the header.
+  static void _insertEventBlock(
+      List<String> lines, int header, int minutes, List<String> block) {
+    var insertAt = -1;
+    var afterLast = -1;
+    var i = header + 1;
+    while (i < lines.length) {
+      final trimmed = lines[i].trim();
+      if (trimmed.isEmpty) {
+        i++;
+        continue;
+      }
+      final m = MarkdownParser.eventLine.firstMatch(trimmed);
+      if (m == null) break; // end of the section
+      if (insertAt < 0 && int.parse(m[1]!) * 60 + int.parse(m[2]!) > minutes) {
+        insertAt = i;
+      }
+      i = MarkdownParser.eventBlockEnd(lines, i);
+      afterLast = i;
+    }
+    if (insertAt < 0 && afterLast < 0) {
+      // First event: keep a blank line before whatever follows.
+      insertAt = header + 1;
+      if (insertAt < lines.length && lines[insertAt].trim().isNotEmpty) {
+        block = [...block, ''];
+      }
+    }
+    lines.insertAll(insertAt >= 0 ? insertAt : afterLast, block);
   }
 
   /// Inserts an event after the last existing event in the events section.
