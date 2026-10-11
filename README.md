@@ -23,10 +23,10 @@ PlaneTxt (formerly Planova) is the successor of MOrg: it replaces the calendar.t
 - **Daily files**: each day is a Markdown file with Events, Todos, Logs and Notes sections. The template is configurable.
 - **Todos**: tap a todo to check or uncheck it. Refill carries unfinished todos from any previous day over to today.
 - **Events**: `- @09:30 Team standup` becomes a timed event, with a notification one hour before it starts. On Linux, notifications only fire while PlaneTxt is running.
-- **Quick add**: add an event or a todo to a day without opening the editor.
+- **Quick add**: add an event, a todo or a log to a day without opening the editor.
 - **Notes**: a searchable list of notes organized in subfolders, with rename and delete.
 - **Markdown editor**: formatting toolbar, auto-indent and todo handling.
-- **ICS import**: share an .ics file to PlaneTxt to merge its events into the right days.
+- **ICS import**: share an .ics file to PlaneTxt to merge its events into the right days. Importing the same file twice adds nothing. Any other shared text can be added to today as a todo, an event or a log.
 - **Home screen widget** (Android): today's events and todos, with light and dark styles and adjustable transparency.
 - **Themes**: system, light or dark mode, with Gruvbox, Nord, Adwaita, Monokai and Everforest color themes.
 - **Your storage, your rules**: keep the default app folder or pick any folder through the system picker. No storage permission is needed.
@@ -75,7 +75,8 @@ The section headers are matched by configurable patterns, so you can rename them
 
 - **Android**: APKs are attached to each [GitHub release](https://github.com/brvier/PlaneTxt/releases). Play Store and F-Droid listings are in progress.
 - **Linux**: build from source, see below. Desktop entries are provided in `planetxt.desktop` and `planetxt-portable.desktop`. Omarchy users can also install the [PlaneTxtQuickShell](https://github.com/brvier/PlaneTxtQuickShell) bar plugin.
-- **iOS, macOS, Windows, web**: the Flutter project builds for these targets, but they are not tested regularly.
+
+Android and Linux are the supported platforms. Other Flutter targets are not maintained: the web build cannot run (the app needs a real file system), and iOS, macOS and Windows are untested.
 
 ## Build from source
 
@@ -104,6 +105,7 @@ Done:
 - [x] Event notifications
 - [x] Android home screen widget
 - [x] ICS import through the Android share sheet
+- [x] Shared text added to today as a todo, an event or a log
 - [x] Custom storage folder through the system picker, no storage permission
 - [x] Linux desktop build
 - [x] Unit tests and CI
@@ -114,7 +116,7 @@ Next:
 - [ ] Share a note from the notes view
 - [ ] Archive a note
 - [ ] Fold and unfold note subfolders
-- [ ] Receive shared text as a new note or todo
+- [ ] Receive shared text as a new note
 - [ ] Weekly review screen
 - [ ] Desktop layout for wide screens
 
