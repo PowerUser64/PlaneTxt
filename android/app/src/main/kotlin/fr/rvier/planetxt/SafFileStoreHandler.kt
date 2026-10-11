@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
@@ -13,6 +14,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.BufferedReader
 import java.io.FileNotFoundException
 import java.io.InputStreamReader
+import java.io.SyncFailedException
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -32,6 +34,11 @@ class SafFileStoreHandler(private val activity: Activity) {
         const val PICK_TREE_REQUEST_CODE = 4217
         private const val TAG = "SafFileStore"
         private const val DIR_MIME = DocumentsContract.Document.MIME_TYPE_DIR
+
+        // Hidden temp document a write goes through before replacing the
+        // original: ".<name><suffix>", never matched by a ".md" listing.
+        private const val TEMP_SUFFIX = ".planetxt-tmp"
+        private const val TEMP_MIME = "application/octet-stream"
     }
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -210,6 +217,8 @@ class SafFileStoreHandler(private val activity: Activity) {
         recursive: Boolean,
         out: MutableList<Map<String, Any?>>
     ) {
+        val fileIds = HashMap<String, String>()
+        var temps = 0
         queryChildren(treeUri, dirDocId) { c ->
             val docId = c.getString(0)
             val name = c.getString(1)
@@ -220,8 +229,19 @@ class SafFileStoreHandler(private val activity: Activity) {
                 if (recursive) {
                     listInto(treeUri, docId, childRel, extension, true, out)
                 }
-            } else if (name.endsWith(extension)) {
-                out.add(mapOf("relPath" to childRel, "mtime" to mtime))
+            } else {
+                fileIds[name] = docId
+                if (originalNameFor(name) != null) temps++
+                if (name.endsWith(extension)) {
+                    out.add(mapOf("relPath" to childRel, "mtime" to mtime))
+                }
+            }
+        }
+        if (temps == 0) return
+        for (name in recoverTempFiles(treeUri, fileIds)) {
+            if (name.endsWith(extension)) {
+                val childRel = if (relDir.isEmpty()) name else "$relDir/$name"
+                out.add(mapOf("relPath" to childRel, "mtime" to System.currentTimeMillis()))
             }
         }
     }
@@ -284,20 +304,122 @@ class SafFileStoreHandler(private val activity: Activity) {
         val (parentRel, name) = splitParent(relPath)
         val parentId = resolveDirId(treeUri, parentRel, create = true)
             ?: throw IllegalStateException("Cannot create directory $parentRel")
-        val existing = findChild(treeUri, parentId, name)
-        val docUri = if (existing != null) {
-            DocumentsContract.buildDocumentUriUsingTree(treeUri, existing.docId)
-        } else {
-            val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentId)
-            DocumentsContract.createDocument(
+        val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentId)
+        val bytes = content.toByteArray(Charsets.UTF_8)
+        val tempName = tempNameFor(name)
+        val children = findChildren(treeUri, parentId, setOf(name, tempName))
+        val existing = children[name]
+
+        if (existing == null) {
+            // New file: an interrupted write loses nothing that existed.
+            val docUri = DocumentsContract.createDocument(
                 activity.contentResolver, parentUri, mimeFor(name), name
             ) ?: throw IllegalStateException("Cannot create document $relPath")
+            writeBytes(docUri, bytes, relPath)
+            // A temp left by a failed swap holds older content than this.
+            children[tempName]?.let { deleteQuietly(treeUri, it.docId) }
+            return
         }
-        // "wt" = truncate + write.
-        activity.contentResolver.openOutputStream(docUri, "wt")?.use { output ->
-            output.write(content.toByteArray(Charsets.UTF_8))
+
+        val existingUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, existing.docId)
+        // Leftover of a write interrupted before the swap: the original is
+        // still the committed version, so the temp is garbage.
+        children[tempName]?.let { deleteQuietly(treeUri, it.docId) }
+
+        val flags = documentFlags(existingUri)
+        val canSwap = (flags and DocumentsContract.Document.FLAG_SUPPORTS_RENAME) != 0 &&
+            (flags and DocumentsContract.Document.FLAG_SUPPORTS_DELETE) != 0
+        val tempUri = if (canSwap) createQuietly(parentUri, tempName) else null
+        if (tempUri == null) {
+            // Provider cannot rename or refuses the temp: write in place.
+            writeBytes(existingUri, bytes, relPath)
+            return
+        }
+
+        // Crash-safe replace: the original is only removed once the new
+        // content is complete and synced in the temp document. An
+        // interruption leaves the intact original, or a complete temp that
+        // [recoverTempFiles] renames back on the next listing.
+        try {
+            writeBytes(tempUri, bytes, relPath)
+        } catch (e: Exception) {
+            deleteQuietly(tempUri)
+            throw e
+        }
+        DocumentsContract.deleteDocument(activity.contentResolver, existingUri)
+        DocumentsContract.renameDocument(activity.contentResolver, tempUri, name)
+            ?: throw IllegalStateException("Rename failed for $relPath")
+    }
+
+    private fun writeBytes(docUri: Uri, bytes: ByteArray, relPath: String) {
+        val pfd = activity.contentResolver.openFileDescriptor(docUri, "wt")
+            ?: throw IllegalStateException("Cannot open $relPath for writing")
+        ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+            output.write(bytes)
             output.flush()
-        } ?: throw IllegalStateException("Cannot open output stream for $relPath")
+            try {
+                pfd.fileDescriptor.sync()
+            } catch (e: SyncFailedException) {
+                // Pipe-backed providers cannot sync; they commit on close.
+            }
+        }
+    }
+
+    /**
+     * Finish writes interrupted between deleting the original and renaming
+     * the temp over it ([writeFile]): a temp whose original is missing holds
+     * the complete new content. A temp next to its original is garbage.
+     * [names] maps each child name of the directory to its document id.
+     */
+    private fun recoverTempFiles(treeUri: Uri, names: Map<String, String>): List<String> {
+        val recovered = mutableListOf<String>()
+        for ((childName, docId) in names) {
+            val original = originalNameFor(childName) ?: continue
+            if (names.containsKey(original)) {
+                deleteQuietly(treeUri, docId)
+                continue
+            }
+            val tempUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+            try {
+                DocumentsContract.renameDocument(activity.contentResolver, tempUri, original)
+                Log.w(TAG, "Recovered $original from an interrupted write")
+                recovered.add(original)
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not recover $original from $childName", e)
+            }
+        }
+        return recovered
+    }
+
+    private fun tempNameFor(name: String) = ".$name$TEMP_SUFFIX"
+
+    private fun originalNameFor(tempName: String): String? =
+        if (tempName.startsWith('.') && tempName.endsWith(TEMP_SUFFIX))
+            tempName.substring(1, tempName.length - TEMP_SUFFIX.length)
+        else null
+
+    private fun documentFlags(docUri: Uri): Int =
+        activity.contentResolver.query(
+            docUri, arrayOf(DocumentsContract.Document.COLUMN_FLAGS), null, null, null
+        )?.use { c -> if (c.moveToFirst()) c.getInt(0) else 0 } ?: 0
+
+    private fun createQuietly(parentUri: Uri, name: String): Uri? =
+        try {
+            DocumentsContract.createDocument(activity.contentResolver, parentUri, TEMP_MIME, name)
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot create temp document $name, writing in place", e)
+            null
+        }
+
+    private fun deleteQuietly(treeUri: Uri, docId: String) =
+        deleteQuietly(DocumentsContract.buildDocumentUriUsingTree(treeUri, docId))
+
+    private fun deleteQuietly(docUri: Uri) {
+        try {
+            DocumentsContract.deleteDocument(activity.contentResolver, docUri)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not delete $docUri", e)
+        }
     }
 
     private fun deleteFile(treeUri: Uri, relPath: String) {
@@ -372,6 +494,22 @@ class SafFileStoreHandler(private val activity: Activity) {
         }
         dirIdCache[cacheKey] = currentId
         return currentId
+    }
+
+    /** One children query for several names (missing ones are absent). */
+    private fun findChildren(
+        treeUri: Uri,
+        parentDocId: String,
+        names: Set<String>
+    ): Map<String, ChildDoc> {
+        val found = HashMap<String, ChildDoc>()
+        queryChildren(treeUri, parentDocId) { c ->
+            val childName = c.getString(1)
+            if (childName in names) {
+                found[childName] = ChildDoc(c.getString(0), c.getString(2) ?: "", c.getLong(3))
+            }
+        }
+        return found
     }
 
     private fun findChild(treeUri: Uri, parentDocId: String, name: String): ChildDoc? {
