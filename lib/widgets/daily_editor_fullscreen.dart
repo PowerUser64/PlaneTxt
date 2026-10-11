@@ -34,7 +34,9 @@ class DailyEditorFullscreenState extends State<DailyEditorFullscreen> {
       onSaveCopy: widget.onSaveCopy,
       title: 'Daily Notes - ${_formatDate(widget.date)}',
       hintText:
-          'Write your daily notes here...\\n\\nYou can use Markdown syntax:\\n# Header\\n**bold** *italic*\\n- bullet list\\n1. numbered list\\n[ ] todo item',
+          'Write your daily notes here...\n\nYou can use Markdown syntax:\n'
+          '# Header\n- @09:30 event\n- [ ] todo item\n**bold** *italic*\n'
+          '- bullet list\n1. numbered list',
       mode: EditorMode.fullscreen,
       showHeaderButton: true,
       showCodeButton: true,

@@ -33,7 +33,9 @@ class NoteEditorState extends State<NoteEditor> {
       onSaveCopy: widget.onSaveCopy,
       title: widget.note.displayName,
       hintText:
-          'Write your note here...\\n\\nYou can use Markdown syntax:\\n# Header\\n**bold** *italic*\\n- bullet list\\n1. numbered list\\n[ ] todo item',
+          'Write your note here...\n\nYou can use Markdown syntax:\n'
+          '# Header\n**bold** *italic*\n- bullet list\n1. numbered list\n'
+          '- [ ] todo item',
       mode: EditorMode.fullscreen,
       showHeaderButton: true,
       showCodeButton: true,

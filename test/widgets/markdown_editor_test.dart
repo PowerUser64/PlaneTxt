@@ -210,4 +210,103 @@ void main() {
       expect(copies, ['mine']);
     });
   });
+  group('MarkdownEditor editing', () {
+    /// Put [text] in the field with the cursor at [cursor] (default: end).
+    Future<void> setValue(WidgetTester tester, String text,
+        {int? cursor, int? selectionStart}) async {
+      await tester.showKeyboard(find.byType(TextField));
+      tester.testTextInput.updateEditingValue(TextEditingValue(
+        text: text,
+        selection: TextSelection(
+          baseOffset: selectionStart ?? cursor ?? text.length,
+          extentOffset: cursor ?? text.length,
+        ),
+      ));
+      await tester.pump();
+    }
+
+    /// Type Enter at the cursor of [text], as the keyboard sends it.
+    Future<void> pressEnter(WidgetTester tester, String text,
+        {int? cursor}) async {
+      final at = cursor ?? text.length;
+      await setValue(tester, text, cursor: at);
+      tester.testTextInput.updateEditingValue(TextEditingValue(
+        text: text.replaceRange(at, at, '\n'),
+        selection: TextSelection.collapsed(offset: at + 1),
+      ));
+      await tester.pump();
+    }
+
+    testWidgets('Bold wraps the selection', (tester) async {
+      await tester.pumpWidget(editor());
+      await setValue(tester, 'a word', selectionStart: 2, cursor: 6);
+
+      await tester.tap(find.byTooltip('Bold'));
+      await tester.pump();
+
+      expect(editorText(tester), 'a **word**');
+    });
+
+    testWidgets('Bold without selection puts the cursor inside',
+        (tester) async {
+      await tester.pumpWidget(editor());
+      await setValue(tester, 'a ');
+
+      await tester.tap(find.byTooltip('Bold'));
+      await tester.pump();
+
+      final controller =
+          tester.widget<TextField>(find.byType(TextField)).controller!;
+      expect(editorText(tester), 'a ****');
+      expect(controller.selection, const TextSelection.collapsed(offset: 4));
+    });
+
+    testWidgets('a list marker goes to the start of the line',
+        (tester) async {
+      await tester.pumpWidget(editor());
+      await setValue(tester, 'first\nsecond', cursor: 9);
+
+      await tester.tap(find.byTooltip('Bullet List'));
+      await tester.pump();
+
+      expect(editorText(tester), 'first\n- second');
+    });
+
+    testWidgets('Enter after a checked todo starts an unchecked one',
+        (tester) async {
+      await tester.pumpWidget(editor());
+      await pressEnter(tester, '- [x] done');
+
+      expect(editorText(tester), '- [x] done\n- [ ] ');
+    });
+
+    testWidgets('Enter on an empty item ends the list', (tester) async {
+      await tester.pumpWidget(editor());
+      await pressEnter(tester, '- milk\n- ');
+
+      expect(editorText(tester), '- milk\n');
+    });
+
+    testWidgets('Enter on an empty todo ends the list', (tester) async {
+      await tester.pumpWidget(editor());
+      await pressEnter(tester, '- [ ] a\n- [ ] ');
+
+      expect(editorText(tester), '- [ ] a\n');
+    });
+
+    testWidgets('Enter continues a numbered list', (tester) async {
+      await tester.pumpWidget(editor());
+      await pressEnter(tester, '1. one');
+
+      expect(editorText(tester), '1. one\n2. ');
+    });
+
+    testWidgets('Enter in plain text adds a plain line break',
+        (tester) async {
+      await tester.pumpWidget(editor());
+      await pressEnter(tester, 'hello');
+
+      expect(editorText(tester), 'hello\n');
+    });
+  });
 }

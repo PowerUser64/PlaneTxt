@@ -297,7 +297,7 @@ class MarkdownEditorState extends State<MarkdownEditor>
           child: Row(
             children: [
               IconButton(
-                onPressed: _insertText,
+                onPressed: () => _insertText('**', '**'),
                 icon: const Icon(Icons.format_bold),
                 tooltip: 'Bold',
               ),
@@ -308,17 +308,17 @@ class MarkdownEditorState extends State<MarkdownEditor>
               ),
               if (widget.showHeaderButton)
                 IconButton(
-                  onPressed: () => _insertText('# '),
+                  onPressed: () => _insertLinePrefix('# '),
                   icon: const Icon(Icons.title),
                   tooltip: 'Header',
                 ),
               IconButton(
-                onPressed: () => _insertText('- '),
+                onPressed: () => _insertLinePrefix('- '),
                 icon: const Icon(Icons.format_list_bulleted),
                 tooltip: 'Bullet List',
               ),
               IconButton(
-                onPressed: () => _insertText('1. '),
+                onPressed: () => _insertLinePrefix('1. '),
                 icon: const Icon(Icons.format_list_numbered),
                 tooltip: 'Numbered List',
               ),
@@ -330,14 +330,14 @@ class MarkdownEditorState extends State<MarkdownEditor>
                 )
               else
                 IconButton(
-                  onPressed: () => _insertText('[ ] '),
+                  onPressed: () => _insertLinePrefix('- [ ] '),
                   icon: const Icon(Icons.check_box_outline_blank),
                   tooltip: 'Todo Item',
                 ),
               IconButton(
                 onPressed: _showDateTimeDialog,
                 icon: const Icon(Icons.access_time),
-                tooltip: 'Insert Date & Time',
+                tooltip: 'Insert Time',
               ),
               const Spacer(),
               if (widget.showCodeButton)
@@ -400,27 +400,40 @@ class MarkdownEditorState extends State<MarkdownEditor>
     }
   }
 
-  void _insertText([String prefix = '', String suffix = '']) {
+  /// The cursor, or the end of the text if the field was never focused.
+  TextSelection get _selectionOrEnd => _controller.selection.isValid
+      ? _controller.selection
+      : TextSelection.collapsed(offset: _controller.text.length);
+
+  /// Wrap the selection in [prefix] and [suffix]. With nothing selected,
+  /// the cursor lands between them, ready to type.
+  void _insertText(String prefix, [String suffix = '']) {
     final text = _controller.text;
-    final selection = _controller.selection;
+    final selection = _selectionOrEnd;
+    final selected = selection.textInside(text);
+    _controller.value = TextEditingValue(
+      text: text.replaceRange(
+          selection.start, selection.end, '$prefix$selected$suffix'),
+      selection: TextSelection.collapsed(
+        offset: selection.start +
+            prefix.length +
+            (selection.isCollapsed ? 0 : selected.length + suffix.length),
+      ),
+    );
+  }
 
-    if (selection.isValid) {
-      final newText = text.replaceRange(
-        selection.start,
-        selection.end,
-        '$prefix${selection.textInside(text)}$suffix',
-      );
-
-      _controller.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(
-          offset: selection.start +
-              prefix.length +
-              selection.textInside(text).length +
-              suffix.length,
-        ),
-      );
-    }
+  /// Start the cursor's line with [prefix]: a header or list marker only
+  /// means something at the start of a line.
+  void _insertLinePrefix(String prefix) {
+    final text = _controller.text;
+    final selection = _selectionOrEnd;
+    final lineStart = selection.start == 0
+        ? 0
+        : text.lastIndexOf('\n', selection.start - 1) + 1;
+    _controller.value = TextEditingValue(
+      text: text.replaceRange(lineStart, lineStart, prefix),
+      selection: TextSelection.collapsed(offset: selection.end + prefix.length),
+    );
   }
 
   Future<void> _saveContent() async {
@@ -466,13 +479,13 @@ class MarkdownEditorState extends State<MarkdownEditor>
     final currentLineText = lines[currentLine];
 
     // Check if this line has a todo checkbox
-    final todoMatch = RegExp(r'^(\s*[-*+]\s*)\[\s*([x\s])\s*\]\s*(.*)$')
+    final todoMatch = RegExp(r'^(\s*[-*+]\s*)\[\s*([xX\s])\s*\]\s*(.*)$')
         .firstMatch(currentLineText);
 
     if (todoMatch != null) {
       // Toggle the checkbox
       final prefix = todoMatch.group(1)!;
-      final isChecked = todoMatch.group(2) == 'x';
+      final isChecked = todoMatch.group(2)!.toLowerCase() == 'x';
       final content = todoMatch.group(3)!;
 
       final newCheckbox = isChecked ? '[ ]' : '[x]';
@@ -594,87 +607,72 @@ class MarkdownEditorState extends State<MarkdownEditor>
   }
 }
 
+/// Continues lists on Enter: a new line after a list item starts with the
+/// same marker (a todo always starts unchecked, a numbered item counts up),
+/// and Enter on an empty item ends the list instead.
 class _MarkdownInputFormatter extends TextInputFormatter {
+  static final RegExp _todoItem =
+      RegExp(r'^(\s*)([-*+])\s*\[\s*[xX\s]\s*\]\s*(.*)$');
+  static final RegExp _eventItem =
+      RegExp(r'^(\s*)([-*+]\s+@\d{1,2}:\d{2}\s+)(.*)$');
+  static final RegExp _numberedItem = RegExp(r'^(\s*)(\d+)([.)]\s+)(.*)$');
+  static final RegExp _bulletItem = RegExp(r'^(\s*)([-*+]\s+)(.*)$');
+
+  /// The marker that continues the list item [line] starts, and that
+  /// item's content; null if [line] is no list item.
+  static ({String next, String content})? _listItem(String line) {
+    var m = _todoItem.firstMatch(line);
+    if (m != null) return (next: '${m[1]}${m[2]} [ ] ', content: m[3]!);
+    m = _eventItem.firstMatch(line);
+    if (m != null) return (next: '${m[1]}${m[2]}', content: m[3]!);
+    m = _numberedItem.firstMatch(line);
+    if (m != null) {
+      return (
+        next: '${m[1]}${int.parse(m[2]!) + 1}${m[3]}',
+        content: m[4]!,
+      );
+    }
+    m = _bulletItem.firstMatch(line);
+    if (m != null) return (next: '${m[1]}${m[2]}', content: m[3]!);
+    return null;
+  }
+
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    // Check if this is an Enter key press (newline added)
-    if (newValue.text.length > oldValue.text.length) {
-      // Find the difference - check if a newline was just added
-      final oldLines = oldValue.text.split('\n');
-      final newLines = newValue.text.split('\n');
-
-      if (newLines.length > oldLines.length) {
-        // A newline was added, find which line was split
-        final text = newValue.text;
-        final selection = newValue.selection;
-
-        if (!selection.isValid) return newValue;
-
-        // Find the current line (the one with the cursor)
-        final lines = text.split('\n');
-        int currentLine = 0;
-        int currentPosition = 0;
-
-        for (int i = 0; i < lines.length; i++) {
-          final lineLength = lines[i].length + 1; // +1 for newline
-          if (currentPosition + lineLength > selection.start) {
-            currentLine = i;
-            break;
-          }
-          currentPosition += lineLength;
-        }
-
-        if (currentLine >= lines.length) return newValue;
-
-        // Get the previous line (the one that was split)
-        final previousLineIndex = currentLine - 1;
-        if (previousLineIndex < 0) return newValue;
-
-        final previousLineText = lines[previousLineIndex];
-
-        // Check for patterns that should be continued
-        final patterns = [
-          RegExp(
-              r'^(\s*)(-\s+\[[x\s]\]\s+)(.*)$'), // - [x] or - [ ] item (check this first)
-          RegExp(r'^(\s*)(-\s+@\d{2}:\d{2}\s+)(.*)$'), // - @14:00 item
-          RegExp(r'^(\s*)(-\s+)(.*)$'), // - item (check this last)
-        ];
-
-        String? indent;
-        String? prefix;
-
-        for (final pattern in patterns) {
-          final match = pattern.firstMatch(previousLineText);
-          if (match != null) {
-            indent = match.group(1) ?? '';
-            prefix = match.group(2) ?? '';
-            break;
-          }
-        }
-
-        if (indent != null && prefix != null) {
-          // Insert new line with the same indentation and prefix
-          final newLine = '$indent$prefix';
-          final newText = text.replaceRange(
-            selection.start,
-            selection.end,
-            newLine,
-          );
-
-          return TextEditingValue(
-            text: newText,
-            selection: TextSelection.collapsed(
-              offset: selection.start + newLine.length,
-            ),
-          );
-        }
-      }
+    final selection = oldValue.selection;
+    if (!selection.isValid) return newValue;
+    final text = oldValue.text;
+    // Only Enter typed at the cursor; a pasted block is left as it is.
+    if (newValue.text != text.replaceRange(selection.start, selection.end, '\n')) {
+      return newValue;
     }
 
-    return newValue;
+    final lineStart = selection.start == 0
+        ? 0
+        : text.lastIndexOf('\n', selection.start - 1) + 1;
+    final nextBreak = text.indexOf('\n', selection.end);
+    final lineEnd = nextBreak < 0 ? text.length : nextBreak;
+    final item = _listItem(text.substring(lineStart, selection.start));
+    if (item == null) return newValue;
+
+    if (item.content.trim().isEmpty &&
+        text.substring(selection.end, lineEnd).trim().isEmpty) {
+      // Enter on an empty item: drop its marker, the list ends here.
+      return TextEditingValue(
+        text: text.replaceRange(lineStart, selection.end, ''),
+        selection: TextSelection.collapsed(offset: lineStart),
+      );
+    }
+
+    final inserted = '\n${item.next}';
+    return TextEditingValue(
+      text: text.replaceRange(selection.start, selection.end, inserted),
+      selection:
+          TextSelection.collapsed(offset: selection.start + inserted.length),
+    );
   }
 }
 
