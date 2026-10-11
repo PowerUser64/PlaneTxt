@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 
 class RefillTodo {
-  final String content;
+  /// The task text, without its `- [ ]` marker.
+  final String text;
   final String sourceDate;
   final String sourceDateDisplay;
 
   RefillTodo({
-    required this.content,
+    required this.text,
     required this.sourceDate,
     required this.sourceDateDisplay,
   });
+
+  String get content => '- [ ] $text';
 }
 
 class RefillDialog extends StatefulWidget {
@@ -27,7 +30,8 @@ class RefillDialog extends StatefulWidget {
 }
 
 class _RefillDialogState extends State<RefillDialog> {
-  final Map<String, bool> _selectedTodos = {};
+  // Indexes into undoneTodos: the same text can be undone on several days.
+  final Set<int> _selected = {};
 
   @override
   Widget build(BuildContext context) {
@@ -49,9 +53,8 @@ class _RefillDialogState extends State<RefillDialog> {
                 TextButton(
                   onPressed: () {
                     setState(() {
-                      for (final todo in widget.undoneTodos) {
-                        _selectedTodos[todo.content] = true;
-                      }
+                      _selected.addAll(
+                          List.generate(widget.undoneTodos.length, (i) => i));
                     });
                   },
                   child: const Text('Select All'),
@@ -60,7 +63,7 @@ class _RefillDialogState extends State<RefillDialog> {
                 TextButton(
                   onPressed: () {
                     setState(() {
-                      _selectedTodos.clear();
+                      _selected.clear();
                     });
                   },
                   child: const Text('Select None'),
@@ -76,10 +79,14 @@ class _RefillDialogState extends State<RefillDialog> {
                   return CheckboxListTile(
                     title: Text(todo.content),
                     subtitle: Text('From ${todo.sourceDateDisplay}'),
-                    value: _selectedTodos[todo.content] ?? false,
+                    value: _selected.contains(index),
                     onChanged: (value) {
                       setState(() {
-                        _selectedTodos[todo.content] = value ?? false;
+                        if (value ?? false) {
+                          _selected.add(index);
+                        } else {
+                          _selected.remove(index);
+                        }
                       });
                     },
                     dense: true,
@@ -97,9 +104,10 @@ class _RefillDialogState extends State<RefillDialog> {
         ),
         TextButton(
           onPressed: () {
-            final selectedTodos = widget.undoneTodos
-                .where((todo) => _selectedTodos[todo.content] == true)
-                .toList();
+            final selectedTodos = [
+              for (var i = 0; i < widget.undoneTodos.length; i++)
+                if (_selected.contains(i)) widget.undoneTodos[i],
+            ];
 
             if (selectedTodos.isNotEmpty) {
               widget.onRefill(selectedTodos);

@@ -310,7 +310,11 @@ class DailyFileProvider extends ChangeNotifier {
   /// With [expected], the save fails with [FileConflictException] when the
   /// file changed on disk since the caller read it.
   Future<void> saveDailyFile(
-      BuildContext context, String date, String content,
+          BuildContext context, String date, String content,
+          {ExpectedContent? expected}) =>
+      _saveDaily(date, content, expected: expected);
+
+  Future<void> _saveDaily(String date, String content,
       {ExpectedContent? expected}) async {
     try {
       Log.d('📅 DailyFileProvider: Saving daily file for $date');
@@ -345,19 +349,22 @@ class DailyFileProvider extends ChangeNotifier {
   /// Read the day's file from disk, apply [edit] and save the result,
   /// checked against what was read. If another app or a sync tool writes
   /// the file in between, [edit] is re-applied to that newer content
-  /// instead of overwriting it. [template] seeds a day without a file.
+  /// instead of overwriting it. [template] seeds a day without a file;
+  /// without one, a missing file is left alone.
   Future<void> updateDailyFile(
-    BuildContext context,
     String date,
     String Function(String content) edit, {
-    required String template,
+    String? template,
   }) async {
     const maxAttempts = 3;
     for (var attempt = 1;; attempt++) {
       final current = await getDailyFile(date);
+      final base = current?.content ?? template;
+      if (base == null) return;
+      final updated = edit(base);
+      if (current != null && updated == current.content) return;
       try {
-        if (!context.mounted) return;
-        await saveDailyFile(context, date, edit(current?.content ?? template),
+        await _saveDaily(date, updated,
             expected: ExpectedContent(current?.content));
         return;
       } on FileConflictException {
@@ -365,6 +372,34 @@ class DailyFileProvider extends ChangeNotifier {
         Log.w('⚠️ DailyFileProvider: $date changed while editing, retrying');
       }
     }
+  }
+
+  /// Move undone todos ([todoTextsBySource]: source date to todo texts) from
+  /// earlier days to [targetDate]. The target is written first: if that
+  /// fails, every todo is still in its source day. An interruption after
+  /// it can leave a todo in both days, never in neither.
+  Future<void> refillTodos(
+    String targetDate,
+    Map<String, List<String>> todoTextsBySource, {
+    required String template,
+    required String todoHeaderRegex,
+  }) async {
+    final texts = todoTextsBySource.values.expand((t) => t).toList();
+    await updateDailyFile(targetDate, (content) {
+      var updated = content;
+      for (final text in texts) {
+        updated = DailyContentHelper.insertAfterLastTodo(
+            updated, '- [ ] $text', todoHeaderRegex);
+      }
+      return updated;
+    }, template: template);
+
+    for (final entry in todoTextsBySource.entries) {
+      await updateDailyFile(entry.key,
+          (content) => DailyContentHelper.removeUndoneTodos(content, entry.value));
+    }
+    Log.i('📅 DailyFileProvider: Refilled ${texts.length} todo(s) '
+        'to $targetDate');
   }
 
   Future<void> _scheduleEventNotifications(String date, String content) async {

@@ -152,4 +152,32 @@ note''';
       expect(result, '## Tasks\n- [ ] first\n- [ ] second');
     });
   });
+
+  group('DailyContentHelper.removeUndoneTodos', () {
+    test('matches the task text whatever the bullet and spacing', () {
+      const content = '## Tasks\n* [ ] star bullet\n-  [ ]  wide spaces\n'
+          '- [ ] stays';
+      final result = DailyContentHelper.removeUndoneTodos(
+          content, ['star bullet', 'wide spaces']);
+      expect(result, '## Tasks\n- [ ] stays');
+    });
+
+    test('leaves a checked todo with the same text alone', () {
+      const content = '- [x] call mom\n- [ ] call mom';
+      expect(DailyContentHelper.removeUndoneTodos(content, ['call mom']),
+          '- [x] call mom');
+    });
+
+    test('removes only as many occurrences as requested', () {
+      const content = '- [ ] water plants\n- [ ] water plants';
+      expect(DailyContentHelper.removeUndoneTodos(content, ['water plants']),
+          '- [ ] water plants');
+    });
+
+    test('keeps CRLF line endings', () {
+      const content = '- [ ] a\r\n- [ ] b\r\n';
+      expect(DailyContentHelper.removeUndoneTodos(content, ['a']),
+          '- [ ] b\r\n');
+    });
+  });
 }

@@ -216,7 +216,7 @@ class _CalendarViewState extends State<CalendarView> {
           // Applied to the file as it is when saving, not as it was when
           // the dialog opened: a sync landing meanwhile is kept.
           dailyFileProvider
-              .updateDailyFile(context, dateString, insert,
+              .updateDailyFile(dateString, insert,
                   template: themeProvider.dailyTemplate)
               .catchError((Object e) {
             if (context.mounted) _showSaveError(context, e);
@@ -318,7 +318,7 @@ class _CalendarViewState extends State<CalendarView> {
       for (final task in dailyFileProvider.getTasks(dailyFile.date)) {
         if (!task.isCompleted) {
           undoneTodos.add(RefillTodo(
-            content: '- [ ] ${task.text}',
+            text: task.text,
             sourceDate: dailyFile.date,
             sourceDateDisplay:
                 _formatDisplayDate(_parseDateFromString(dailyFile.date)),
@@ -350,37 +350,21 @@ class _CalendarViewState extends State<CalendarView> {
   void _performRefill(BuildContext context, DailyFileProvider dailyFileProvider,
       List<RefillTodo> selectedTodos, String targetDate) async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    final targetDailyFile =
-        await dailyFileProvider.ensureDailyFileLoaded(targetDate);
-    String targetContent = targetDailyFile?.content ?? themeProvider.dailyTemplate;
-
-    final todosByDate = <String, List<RefillTodo>>{};
+    final textsBySource = <String, List<String>>{};
     for (final todo in selectedTodos) {
-      todosByDate.putIfAbsent(todo.sourceDate, () => []).add(todo);
+      textsBySource.putIfAbsent(todo.sourceDate, () => []).add(todo.text);
     }
 
-    for (final entry in todosByDate.entries) {
-      final sourceDailyFile = await dailyFileProvider.getDailyFile(entry.key);
-      if (sourceDailyFile != null) {
-        String newSourceContent = sourceDailyFile.content;
-        for (final todo in entry.value) {
-          final lines = newSourceContent.split('\n');
-          lines.removeWhere((line) => line.trim() == todo.content.trim());
-          newSourceContent = lines.join('\n');
-        }
-        if (!context.mounted) return;
-        await dailyFileProvider.saveDailyFile(
-            context, entry.key, newSourceContent);
-      }
-    }
-
-    for (final todo in selectedTodos) {
-      targetContent = DailyContentHelper.insertAfterLastTodo(
-          targetContent, todo.content, themeProvider.todoHeaderRegex);
-    }
-
-    if (context.mounted) {
-      await dailyFileProvider.saveDailyFile(context, targetDate, targetContent);
+    try {
+      await dailyFileProvider.refillTodos(
+        targetDate,
+        textsBySource,
+        template: themeProvider.dailyTemplate,
+        todoHeaderRegex: themeProvider.todoHeaderRegex,
+      );
+    } catch (e) {
+      if (context.mounted) _showSaveError(context, e);
+      return;
     }
     if (context.mounted) {
       setState(() {});
@@ -391,4 +375,5 @@ class _CalendarViewState extends State<CalendarView> {
       );
     }
   }
+
 }

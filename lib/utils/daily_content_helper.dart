@@ -307,6 +307,29 @@ class DailyContentHelper {
         : '$before\n\n$newItem';
   }
 
+  /// Removes one undone todo line per entry of [todoTexts], matched on the
+  /// parsed task text: `* [ ]` bullets or extra spaces still match.
+  /// Checked todos are left alone.
+  static String removeUndoneTodos(String content, List<String> todoTexts) =>
+      _keepingLineEndings(content, (c) {
+        final remaining = <String, int>{};
+        for (final text in todoTexts) {
+          remaining[text] = (remaining[text] ?? 0) + 1;
+        }
+        final kept = <String>[];
+        for (final line in c.split('\n')) {
+          final tasks = MarkdownParser.parseTasks(line);
+          final text = tasks.isEmpty ? null : tasks.single.text;
+          final left = text == null ? 0 : remaining[text] ?? 0;
+          if (left > 0 && !tasks.single.isCompleted) {
+            remaining[text!] = left - 1;
+            continue;
+          }
+          kept.add(line);
+        }
+        return kept.join('\n');
+      });
+
   /// Inserts content at the end of a section (just before the next `#`
   /// header). If no matching section exists, appends to the end of the file.
   static String insertAtEndOfSection(
