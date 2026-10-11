@@ -48,6 +48,14 @@ class SafFileStoreHandler(private val activity: Activity) {
     /** Cache of resolved directory document IDs, keyed by "treeUri|relDir". */
     private val dirIdCache = ConcurrentHashMap<String, String>()
 
+    /**
+     * Document ids of the files already found, by "treeUri|relPath": finding
+     * a file otherwise lists its whole directory, which takes most of a
+     * second in a synced folder of a few hundred files. Each use checks
+     * that the document still exists under that name ([cachedFile]).
+     */
+    private val fileIdCache = ConcurrentHashMap<String, String>()
+
     fun register(messenger: BinaryMessenger) {
         MethodChannel(messenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -69,6 +77,7 @@ class SafFileStoreHandler(private val activity: Activity) {
                         Log.w(TAG, "releaseTree: no persisted permission for $uri")
                     }
                     dirIdCache.clear()
+                    fileIdCache.clear()
                     result.success(true)
                 }
                 "treeDisplayName" -> runInBackground(result) {
@@ -231,6 +240,7 @@ class SafFileStoreHandler(private val activity: Activity) {
                 }
             } else {
                 fileIds[name] = docId
+                fileIdCache[fileKey(treeUri, childRel)] = docId
                 if (originalNameFor(name) != null) temps++
                 if (name.endsWith(extension)) {
                     out.add(mapOf("relPath" to childRel, "mtime" to mtime))
@@ -239,8 +249,10 @@ class SafFileStoreHandler(private val activity: Activity) {
         }
         if (temps == 0) return
         for (name in recoverTempFiles(treeUri, fileIds)) {
+            val childRel = if (relDir.isEmpty()) name else "$relDir/$name"
+            // Renamed from its temp: the listed id is not this file's.
+            fileIdCache.remove(fileKey(treeUri, childRel))
             if (name.endsWith(extension)) {
-                val childRel = if (relDir.isEmpty()) name else "$relDir/$name"
                 out.add(mapOf("relPath" to childRel, "mtime" to System.currentTimeMillis()))
             }
         }
@@ -286,6 +298,9 @@ class SafFileStoreHandler(private val activity: Activity) {
             queryChildren(treeUri, parentId) { c ->
                 if (c.getString(2) != DIR_MIME) {
                     nameToDocId[c.getString(1)] = c.getString(0)
+                    val childRel = if (parentRel.isEmpty()) c.getString(1)
+                        else "$parentRel/${c.getString(1)}"
+                    fileIdCache[fileKey(treeUri, childRel)] = c.getString(0)
                 }
             }
             for (path in paths) {
@@ -307,14 +322,20 @@ class SafFileStoreHandler(private val activity: Activity) {
         val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentId)
         val bytes = content.toByteArray(Charsets.UTF_8)
         val tempName = tempNameFor(name)
-        val children = findChildren(treeUri, parentId, setOf(name, tempName))
+        // A cached file skips the directory listing; a temp left over by an
+        // interrupted write is then cleaned up by the next listing instead.
+        val children: Map<String, ChildDoc> = cachedFile(treeUri, relPath)
+            ?.let { mapOf(name to it) }
+            ?: findChildren(treeUri, parentId, setOf(name, tempName))
         val existing = children[name]
+        val key = fileKey(treeUri, relPath)
 
         if (existing == null) {
             // New file: an interrupted write loses nothing that existed.
             val docUri = DocumentsContract.createDocument(
                 activity.contentResolver, parentUri, mimeFor(name), name
             ) ?: throw IllegalStateException("Cannot create document $relPath")
+            fileIdCache[key] = DocumentsContract.getDocumentId(docUri)
             writeBytes(docUri, bytes, relPath)
             // A temp left by a failed swap holds older content than this.
             children[tempName]?.let { deleteQuietly(treeUri, it.docId) }
@@ -346,9 +367,11 @@ class SafFileStoreHandler(private val activity: Activity) {
             deleteQuietly(tempUri)
             throw e
         }
+        fileIdCache.remove(key)
         DocumentsContract.deleteDocument(activity.contentResolver, existingUri)
-        DocumentsContract.renameDocument(activity.contentResolver, tempUri, name)
+        val renamed = DocumentsContract.renameDocument(activity.contentResolver, tempUri, name)
             ?: throw IllegalStateException("Rename failed for $relPath")
+        fileIdCache[key] = DocumentsContract.getDocumentId(renamed)
     }
 
     private fun writeBytes(docUri: Uri, bytes: ByteArray, relPath: String) {
@@ -424,13 +447,12 @@ class SafFileStoreHandler(private val activity: Activity) {
 
     private fun deleteFile(treeUri: Uri, relPath: String) {
         val docUri = resolveFileUri(treeUri, relPath) ?: return
+        fileIdCache.remove(fileKey(treeUri, relPath))
         DocumentsContract.deleteDocument(activity.contentResolver, docUri)
     }
 
     private fun statFile(treeUri: Uri, relPath: String): Map<String, Any?>? {
-        val (parentRel, name) = splitParent(relPath)
-        val parentId = resolveDirId(treeUri, parentRel, create = false) ?: return null
-        val child = findChild(treeUri, parentId, name) ?: return null
+        val child = findFile(treeUri, relPath) ?: return null
         return mapOf("mtime" to child.mtime)
     }
 
@@ -441,6 +463,8 @@ class SafFileStoreHandler(private val activity: Activity) {
             ?: throw FileNotFoundException(fromRelPath)
 
         if (fromParent == toParent) {
+            fileIdCache.remove(fileKey(treeUri, fromRelPath))
+            fileIdCache.remove(fileKey(treeUri, toRelPath))
             DocumentsContract.renameDocument(activity.contentResolver, fromUri, toName)
                 ?: throw IllegalStateException("Rename failed for $fromRelPath")
         } else {
@@ -458,10 +482,50 @@ class SafFileStoreHandler(private val activity: Activity) {
     private data class ChildDoc(val docId: String, val mime: String, val mtime: Long)
 
     private fun resolveFileUri(treeUri: Uri, relPath: String): Uri? {
+        val child = findFile(treeUri, relPath) ?: return null
+        return DocumentsContract.buildDocumentUriUsingTree(treeUri, child.docId)
+    }
+
+    private fun fileKey(treeUri: Uri, relPath: String) = "$treeUri|${relPath.trim('/')}"
+
+    /** [relPath]'s document: from the cache, else by listing its directory. */
+    private fun findFile(treeUri: Uri, relPath: String): ChildDoc? {
+        cachedFile(treeUri, relPath)?.let { return it }
         val (parentRel, name) = splitParent(relPath)
         val parentId = resolveDirId(treeUri, parentRel, create = false) ?: return null
         val child = findChild(treeUri, parentId, name) ?: return null
-        return DocumentsContract.buildDocumentUriUsingTree(treeUri, child.docId)
+        if (child.mime != DIR_MIME) fileIdCache[fileKey(treeUri, relPath)] = child.docId
+        return child
+    }
+
+    /**
+     * The cached document of [relPath], queried on its own (no directory
+     * listing), if it still exists under that name; null otherwise, and the
+     * stale entry is dropped.
+     */
+    private fun cachedFile(treeUri: Uri, relPath: String): ChildDoc? {
+        val key = fileKey(treeUri, relPath)
+        val docId = fileIdCache[key] ?: return null
+        val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+        val doc = try {
+            activity.contentResolver.query(
+                docUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED
+                ),
+                null, null, null
+            )?.use { c ->
+                if (c.moveToFirst() && c.getString(0) == splitParent(relPath).second) {
+                    ChildDoc(docId, c.getString(1) ?: "", c.getLong(2))
+                } else null
+            }
+        } catch (e: Exception) {
+            null // deleted, or no longer reachable through this tree
+        }
+        if (doc == null) fileIdCache.remove(key)
+        return doc
     }
 
     /**
@@ -568,6 +632,7 @@ class SafFileStoreHandler(private val activity: Activity) {
                 // On any structural failure, drop the directory-id cache: the
                 // tree may have been reorganised by another app (Syncthing).
                 dirIdCache.clear()
+                fileIdCache.clear()
                 mainHandler.post { result.error("SAF_ERROR", e.message, null) }
             }
         }

@@ -223,6 +223,14 @@ note''';
           '# Synced meanwhile\n- [ ] a\n- [x] b');
     });
 
+    test('repeated taps on a row end in the last state asked', () {
+      const content = '- [ ] a';
+      final task = taskAt(content, 0);
+      final checked = DailyContentHelper.setTodoDone(content, task, true);
+      expect(DailyContentHelper.setTodoDone(checked, task, false), '- [ ] a');
+      expect(DailyContentHelper.setTodoDone(checked, task, true), '- [x] a');
+    });
+
     test('leaves the file alone when the todo is gone', () {
       final task = taskAt('- [ ] a', 0);
       expect(DailyContentHelper.setTodoDone('- [x] a', task, true), '- [x] a');

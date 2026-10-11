@@ -168,6 +168,7 @@ class SafFileStore extends FileStore {
   /// cache, so a second attempt re-resolves paths from scratch (covers trees
   /// reorganised externally, e.g. by Syncthing).
   Future<T?> _invoke<T>(String method, Map<String, Object?> args) async {
+    final watch = Stopwatch()..start();
     try {
       return await _channel.invokeMethod<T>(method, args);
     } on PlatformException catch (e) {
@@ -177,6 +178,15 @@ class SafFileStore extends FileStore {
       } on PlatformException catch (e2) {
         Log.e('❌ SafFileStore: $method failed after retry', error: e2);
         rethrow;
+      }
+    } finally {
+      // Every call on a large folder lists it: worth knowing when slow.
+      final ms = watch.elapsedMilliseconds;
+      final target = args['relPath'] ?? args['relDir'] ?? '';
+      if (ms >= 200) {
+        Log.i('🐢 SafFileStore: $method $target took $ms ms');
+      } else {
+        Log.d('SafFileStore: $method $target took $ms ms');
       }
     }
   }

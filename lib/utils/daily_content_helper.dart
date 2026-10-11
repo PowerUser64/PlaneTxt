@@ -390,21 +390,25 @@ class DailyContentHelper {
   static final RegExp _checkbox = RegExp(r'^(\s*[-*+]\s*\[)\s*[xX\s]\s*(\])');
 
   /// Checks ([done]) or unchecks the todo [task] was parsed from: the one
-  /// at [TaskItem.line], or if the file changed since, the first todo with
-  /// the same text and state. [content] is returned unchanged when no such
-  /// todo is left. Only the checkbox changes.
+  /// at [TaskItem.line] if it still has that text (whatever its state, so
+  /// repeated taps on a row only keep the last one), or if the file changed
+  /// since, the first todo with the same text and state. [content] is
+  /// returned unchanged when no such todo is left. Only the checkbox
+  /// changes.
   static String setTodoDone(String content, TaskItem task, bool done) =>
       _keepingLineEndings(content, (c) {
         final lines = c.split('\n');
-        bool isTask(int i) {
+        bool isTask(int i, {bool anyState = false}) {
           final parsed = MarkdownParser.parseTasks(lines[i]);
           return parsed.length == 1 &&
               parsed.single.text == task.text &&
-              parsed.single.isCompleted == task.isCompleted;
+              (anyState || parsed.single.isCompleted == task.isCompleted);
         }
 
         var index = task.line;
-        if (index < 0 || index >= lines.length || !isTask(index)) {
+        if (index < 0 ||
+            index >= lines.length ||
+            !isTask(index, anyState: true)) {
           index = Iterable<int>.generate(lines.length)
               .firstWhere(isTask, orElse: () => -1);
         }

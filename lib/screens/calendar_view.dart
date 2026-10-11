@@ -34,7 +34,8 @@ class _CalendarViewState extends State<CalendarView> {
 
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
-  final Set<String> _pendingToggles = {};
+  /// Tasks being saved, by date then line: the state each tap asked for.
+  final Map<String, Map<int, bool>> _pendingTasks = {};
 
   /// Day the carry-over prompt was last answered (`yyyyMMdd`).
   String? _carryOverAnswered;
@@ -249,6 +250,7 @@ class _CalendarViewState extends State<CalendarView> {
                   _openDailyEditor(context, dailyFileProvider, dateString),
               onToggleTask: (task, done) =>
                   _toggleTask(dailyFileProvider, dateString, task, done),
+              pendingTasks: _pendingTasks[dateString] ?? const {},
             ),
           ),
       ],
@@ -355,19 +357,27 @@ class _CalendarViewState extends State<CalendarView> {
     return day.isBefore(_firstDay) || day.isAfter(_lastDay) ? null : day;
   }
 
-  /// Check or uncheck [task]. A second tap on the same row while the first
-  /// one is being written is ignored: it would act on the stale state.
+  /// Check or uncheck [task]. The row shows the new state at once: on a
+  /// synced folder the write can take a while. Taps on a row queue up and
+  /// the last one wins.
   Future<void> _toggleTask(DailyFileProvider dailyFileProvider, String date,
       TaskItem task, bool done) async {
-    final key = '$date:${task.line}';
-    if (!_pendingToggles.add(key)) return;
+    setState(() => (_pendingTasks[date] ??= {})[task.line] = done);
+    Object? error;
     try {
       await dailyFileProvider.setTodoDone(date, task, done);
     } catch (e) {
-      if (mounted) _showSaveError(context, e);
-    } finally {
-      _pendingToggles.remove(key);
+      error = e;
     }
+    if (!mounted) return;
+    setState(() {
+      final pending = _pendingTasks[date];
+      // A later tap on the row is still being saved: keep showing it.
+      if (pending == null || pending[task.line] != done) return;
+      pending.remove(task.line);
+      if (pending.isEmpty) _pendingTasks.remove(date);
+    });
+    if (error != null) _showSaveError(context, error);
   }
 
   void _loadDailyContent(DateTime day) {

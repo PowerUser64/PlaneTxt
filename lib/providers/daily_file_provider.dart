@@ -351,12 +351,32 @@ class DailyFileProvider extends ChangeNotifier {
     }
   }
 
+  /// Edits of one day run one after another: run together, each would
+  /// take the other's write for an external change and start over.
+  final Map<String, Future<void>> _updateQueues = {};
+
   /// Read the day's file from disk, apply [edit] and save the result,
   /// checked against what was read. If another app or a sync tool writes
   /// the file in between, [edit] is re-applied to that newer content
   /// instead of overwriting it. [template] seeds a day without a file;
-  /// without one, a missing file is left alone.
+  /// without one, a missing file is left alone. Edits of the same day wait
+  /// for each other.
   Future<void> updateDailyFile(
+    String date,
+    String Function(String content) edit, {
+    String? template,
+  }) {
+    final next = (_updateQueues[date] ?? Future<void>.value())
+        .catchError((Object _) {})
+        .then((_) => _updateDailyFile(date, edit, template: template));
+    _updateQueues[date] = next;
+    next.then((_) {}, onError: (Object _) {}).whenComplete(() {
+      if (identical(_updateQueues[date], next)) _updateQueues.remove(date);
+    });
+    return next;
+  }
+
+  Future<void> _updateDailyFile(
     String date,
     String Function(String content) edit, {
     String? template,

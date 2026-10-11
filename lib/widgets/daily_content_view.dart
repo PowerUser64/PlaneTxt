@@ -16,6 +16,10 @@ class DailyContentView extends StatelessWidget {
   /// Checks or unchecks a task, on a tap on its row.
   final void Function(TaskItem task, bool done)? onToggleTask;
 
+  /// Tasks being saved, by line: shown in the state they are being saved
+  /// with, not the one still on disk.
+  final Map<int, bool> pendingTasks;
+
   const DailyContentView({
     super.key,
     required this.dailyFileProvider,
@@ -23,6 +27,7 @@ class DailyContentView extends StatelessWidget {
     required this.logHeaderRegex,
     this.onOpenEditor,
     this.onToggleTask,
+    this.pendingTasks = const {},
   });
 
   @override
@@ -42,6 +47,7 @@ class DailyContentView extends StatelessWidget {
           dailyFileProvider: dailyFileProvider,
           dateString: dateString,
           onToggleTask: onToggleTask,
+          pendingTasks: pendingTasks,
         ),
         const SizedBox(height: 12),
         openOnDoubleTap(Column(
@@ -147,12 +153,14 @@ class TasksSection extends StatelessWidget {
   final DailyFileProvider dailyFileProvider;
   final String dateString;
   final void Function(TaskItem task, bool done)? onToggleTask;
+  final Map<int, bool> pendingTasks;
 
   const TasksSection({
     super.key,
     required this.dailyFileProvider,
     required this.dateString,
     this.onToggleTask,
+    this.pendingTasks = const {},
   });
 
   @override
@@ -163,29 +171,40 @@ class TasksSection extends StatelessWidget {
     return _SectionContainer(
       icon: Icons.task_alt,
       title: 'Tasks',
-      children: tasks
-          .map((task) => _TaskRow(
-                task: task,
-                onToggle: onToggleTask == null
-                    ? null
-                    : () => onToggleTask!(task, !task.isCompleted),
-              ))
-          .toList(),
+      children: tasks.map((task) {
+        final done = pendingTasks[task.line] ?? task.isCompleted;
+        return _TaskRow(
+          text: task.text,
+          done: done,
+          saving: pendingTasks.containsKey(task.line),
+          onToggle:
+              onToggleTask == null ? null : () => onToggleTask!(task, !done),
+        );
+      }).toList(),
     );
   }
 }
 
 class _TaskRow extends StatelessWidget {
-  final TaskItem task;
+  final String text;
+  final bool done;
+
+  /// The new state is being written: a small indicator says so.
+  final bool saving;
   final VoidCallback? onToggle;
 
-  const _TaskRow({required this.task, this.onToggle});
+  const _TaskRow({
+    required this.text,
+    required this.done,
+    this.saving = false,
+    this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Semantics(
-      checked: task.isCompleted,
+      checked: done,
       child: InkWell(
         onTap: onToggle,
         borderRadius: BorderRadius.circular(4),
@@ -195,25 +214,29 @@ class _TaskRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(
-                task.isCompleted
-                    ? Icons.check_box
-                    : Icons.check_box_outline_blank,
+                done ? Icons.check_box : Icons.check_box_outline_blank,
                 size: 20,
-                color: task.isCompleted ? colors.secondary : colors.error,
+                color: done ? colors.secondary : colors.error,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  task.text,
+                  text,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        decoration: task.isCompleted
-                            ? TextDecoration.lineThrough
-                            : null,
-                        color:
-                            task.isCompleted ? colors.onSurfaceVariant : null,
+                        decoration: done ? TextDecoration.lineThrough : null,
+                        color: done ? colors.onSurfaceVariant : null,
                       ),
                 ),
               ),
+              if (saving)
+                const Padding(
+                  padding: EdgeInsets.only(left: 8, top: 2),
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
             ],
           ),
         ),

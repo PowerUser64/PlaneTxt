@@ -101,6 +101,20 @@ void main() {
     });
   });
   group('DailyFileProvider.setTodoDone', () {
+    test('taps on several todos of a day all land', () async {
+      daily('20261011').writeAsStringSync(
+          List.generate(6, (i) => '- [ ] task $i').join('\n'));
+      await provider.ensureDailyFileLoaded('20261011');
+      final tasks = provider.getTasks('20261011');
+
+      // Not awaited one by one: taps arrive while the first write runs.
+      await Future.wait(
+          [for (final task in tasks) provider.setTodoDone('20261011', task, true)]);
+
+      expect(daily('20261011').readAsStringSync(),
+          List.generate(6, (i) => '- [x] task $i').join('\n'));
+    });
+
     test('checks the todo in the file', () async {
       daily('20261011').writeAsStringSync('# Todos\n- [ ] a\n- [ ] b');
       await provider.ensureDailyFileLoaded('20261011');

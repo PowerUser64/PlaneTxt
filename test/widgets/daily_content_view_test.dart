@@ -68,6 +68,29 @@ void main() {
     expect(editorOpenings, 0);
   });
 
+  testWidgets('a todo being saved shows its new state and a spinner',
+      (tester) async {
+    await tester.runAsync(() => provider.ensureDailyFileLoaded(date));
+    final line = provider.getTasks(date).first.line;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: DailyContentView(
+          dailyFileProvider: provider,
+          dateString: date,
+          logHeaderRegex: logHeader,
+          pendingTasks: {line: true},
+        ),
+      ),
+    ));
+
+    final icons = tester
+        .widgetList<Icon>(find.byType(Icon))
+        .map((i) => i.icon)
+        .where((i) => i == Icons.check_box || i == Icons.check_box_outline_blank);
+    expect(icons, [Icons.check_box, Icons.check_box]); // buy milk, call mom
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
   testWidgets('a double tap outside the todos opens the editor',
       (tester) async {
     await pumpDay(tester);
