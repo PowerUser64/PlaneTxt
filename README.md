@@ -75,7 +75,7 @@ The section headers are matched by configurable patterns, so you can rename them
 
 ## Install
 
-- **Android**: APKs are attached to each [GitHub release](https://github.com/brvier/PlaneTxt/releases). Play Store and F-Droid listings are in progress.
+- **Android**: [Google Play](https://play.google.com/store/apps/details?id=fr.rvier.planetxt), [F-Droid](https://f-droid.org/packages/fr.rvier.planetxt/), or the APKs attached to each [GitHub release](https://github.com/brvier/PlaneTxt/releases).
 - **Linux**: build from source, see below. Desktop entries are provided in `planetxt.desktop` and `planetxt-portable.desktop`. Omarchy users can also install the [PlaneTxtQuickShell](https://github.com/brvier/PlaneTxtQuickShell) bar plugin.
 
 Android and Linux are the supported platforms. Other Flutter targets are not maintained: the web build cannot run (the app needs a real file system), and iOS, macOS and Windows are untested.
@@ -115,10 +115,11 @@ Done:
 - [x] Custom storage folder through the system picker, no storage permission
 - [x] Linux desktop build
 - [x] Unit tests and CI
+- [x] Google Play and F-Droid listings
 
 Next:
 
-- [ ] F-Droid and IzzyOnDroid listings
+- [ ] IzzyOnDroid listing
 - [ ] Desktop layout for wide screens
 
 ## Contributing
