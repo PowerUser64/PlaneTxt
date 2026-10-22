@@ -9,7 +9,7 @@ import 'package:planetxt/utils/logger.dart';
 class DailyRepository extends BaseRepository<DailyFile> {
   DailyRepository(super.storageService);
 
-  DailyPathFormat get _format => DailyPathFormat(StorageService.dailyPathFormat);
+  DailyPathFormat get _format => StorageService.dailyFormat;
 
   @override
   String get scanDir => StorageService.dailiesDirName;
@@ -78,12 +78,15 @@ class DailyRepository extends BaseRepository<DailyFile> {
       return cache[date];
     }
 
-    // A wildcard layout (`cal/%Y/%m/%d/*.md`) stores the day under whatever
-    // name it already has - locate the real file rather than assuming the
-    // canonical `daily.md` name.
+    // When the directory carries the date, each date lives in its own
+    // directory and scanning indexes every `.md` note there - locate the
+    // day's real file rather than assuming the configured file name. In a
+    // flat layout the date is encoded in the file name, so read the
+    // canonical file directly.
     final String relPath;
-    if (_format.hasWildcard) {
-      final chosen = _pickDailyEntry(await store.list(_format.directoryForDate(date)));
+    if (_format.directoryHasDate) {
+      final chosen = _pickDailyEntry(
+          await store.list(_format.directoryForDate(date)));
       if (chosen == null) {
         Log.d('📅 DailyRepository: No file exists for date $date');
         cache.remove(date);

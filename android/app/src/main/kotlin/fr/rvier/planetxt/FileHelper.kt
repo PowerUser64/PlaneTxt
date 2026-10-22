@@ -68,9 +68,12 @@ object FileHelper {
                 dirId = findChildDocumentId(context, treeUri, dirId, segment)
                     ?: return null
             }
-            val fileId = if (fileName == "*") {
-                // `*` layout: any .md file in the day directory (prefer daily.md).
-                findAnyMarkdownChild(context, treeUri, dirId, "daily.md")
+            // When the directory carries the date tokens, every .md note in
+            // that day's directory is a daily note: resolve the actual file
+            // (preferring the configured name). Otherwise read the literal
+            // path built from the file name setting.
+            val fileId = if (directoryHasDate(getDailyPathFormat(context))) {
+                findAnyMarkdownChild(context, treeUri, dirId, fileName)
             } else {
                 findChildDocumentId(context, treeUri, dirId, fileName)
             } ?: return null
@@ -110,7 +113,8 @@ object FileHelper {
 
     /**
      * Find any `.md` child of [parentDocId] (preferring [preferName]),
-     * skipping conflict copies. Used by the `*` daily file layout.
+     * skipping conflict copies. Used when the directory carries the date
+     * tokens: every `.md` note in that day's directory is a daily note.
      */
     private fun findAnyMarkdownChild(
         context: Context,
@@ -173,7 +177,7 @@ object FileHelper {
 
     /**
      * Replace the date tokens (`%Y`, `%m`, `%d`) of a daily file layout format
-     * with the components of a `yyyyMMdd` [date]. A `*` wildcard is kept.
+     * with the components of a `yyyyMMdd` [date].
      */
     fun applyDailyPathFormat(format: String, date: String): String {
         if (date.length != 8) return format
@@ -184,6 +188,19 @@ object FileHelper {
             .replace("%Y", year)
             .replace("%m", month)
             .replace("%d", day)
+    }
+
+    /**
+     * Whether the directory part of the layout (everything before the last
+     * `/`) carries a date token: each date then lives in its own directory,
+     * so the widget must resolve the day's actual `.md` note.
+     */
+    private fun directoryHasDate(format: String): Boolean {
+        val dir = format.substringBeforeLast('/')
+        // No `/`: the layout has no directory part (a root file-name layout),
+        // so the date lives in the file name and the literal path is used.
+        if (dir == format) return false
+        return dir.contains("%Y") || dir.contains("%m") || dir.contains("%d")
     }
 
     /**
@@ -288,22 +305,23 @@ object FileHelper {
 
     /**
      * Construct path to today's note file from the configured daily file
-     * layout. A `*` layout resolves the actual `.md` file in the day
-     * directory (preferring `daily.md`); otherwise the literal format path
-     * is used.
+     * layout. When the directory carries the date tokens, every `.md` note
+     * in that day's directory is a daily note: resolve the actual file
+     * (preferring the configured name); otherwise the literal format path
+     * built from the file name setting is used.
      */
     fun getDailyFilePath(context: Context, storagePath: String, date: String): File {
         val format = getDailyPathFormat(context)
         val relPath = applyDailyPathFormat(format, date)
         val literal = File(storagePath, relPath)
 
-        if (format.contains("*")) {
+        if (directoryHasDate(format)) {
             val dir = File(storagePath, relPath.substringBeforeLast('/'))
             val files = dir.listFiles { f ->
                 f.isFile && f.name.endsWith(".md") && !f.name.contains(".sync-conflict-")
             } ?: emptyArray()
             if (files.isNotEmpty()) {
-                val daily = files.firstOrNull { it.name == "daily.md" }
+                val daily = files.firstOrNull { it.name == relPath.substringAfterLast('/') }
                     ?: files.sortedBy { it.name }.first()
                 return daily
             }

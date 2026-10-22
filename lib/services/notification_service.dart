@@ -10,7 +10,6 @@ import 'package:planetxt/constants/app_constants.dart';
 import 'package:planetxt/services/in_app_reminder_scheduler.dart';
 import 'package:planetxt/services/shared_prefs_service.dart';
 import 'package:planetxt/services/storage_service.dart';
-import 'package:planetxt/utils/daily_path_format.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
 import 'package:timezone/data/latest.dart' as tz;
@@ -511,7 +510,7 @@ class NotificationService {
       } else {
         final store = StorageService().store;
         if (store != null) {
-          final format = DailyPathFormat(StorageService.dailyPathFormat);
+          final format = StorageService.dailyFormat;
           final entries = await store.list(
             StorageService.dailiesDirName,
             recursive: format.recursive,

@@ -162,12 +162,12 @@ void main() {
     }
 
     setUp(() {
-      StorageService.applyDailyPathFormat('cal/%Y/%m/%d/daily.md');
+      StorageService.applyDailyPathFormat('cal/%Y/%m/%d', 'daily.md');
       Directory('${tempDir.path}/Org/cal').createSync();
     });
 
     tearDown(() {
-      StorageService.applyDailyPathFormat('dailies/%Y%m%d.md');
+      StorageService.applyDailyPathFormat('dailies', '%Y%m%d.md');
     });
 
     test('loadAll scans recursively and parses dates from the path', () async {
@@ -203,7 +203,7 @@ void main() {
     });
   });
 
-  group('DailyRepository with a wildcard nested layout', () {
+  group('DailyRepository with a nested layout (any file name)', () {
     File nested(String date, String name) {
       final year = date.substring(0, 4);
       final month = date.substring(4, 6);
@@ -214,12 +214,12 @@ void main() {
     }
 
     setUp(() {
-      StorageService.applyDailyPathFormat('cal/%Y/%m/%d/*.md');
+      StorageService.applyDailyPathFormat('cal/%Y/%m/%d', 'daily.md');
       Directory('${tempDir.path}/Org/cal').createSync();
     });
 
     tearDown(() {
-      StorageService.applyDailyPathFormat('dailies/%Y%m%d.md');
+      StorageService.applyDailyPathFormat('dailies', '%Y%m%d.md');
     });
 
     test('loadByDate finds the day file whatever its name', () async {
@@ -230,6 +230,16 @@ void main() {
       expect(file?.date, '20261011');
       expect(file?.path, 'cal/2026/10/11/reading_list.md');
       expect(file?.content, '- [ ] hello');
+    });
+
+    test('loadAll indexes every note in a day directory', () async {
+      nested('20261011', 'daily.md').writeAsStringSync('- [ ] mine');
+      nested('20261011', 'reading_list.md').writeAsStringSync('- [ ] list');
+
+      final files = await repository.loadAll();
+
+      // Both map to the same date; one is picked as that day's file.
+      expect(files.map((f) => f.date).toSet(), {'20261011'});
     });
 
     test('loadAll ignores conflict copies under a day directory', () async {

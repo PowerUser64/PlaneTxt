@@ -19,7 +19,8 @@ class ThemeProvider extends ChangeNotifier {
   String? _storageTreeUri;
   String? _storageTreeName;
   String _dailyTemplate = '';
-  String _dailyPathFormat = AppConstants.defaultDailyPathFormat;
+  String _dailyPathDir = AppConstants.defaultDailyPathDir;
+  String _dailyPathFileName = AppConstants.defaultDailyPathFileName;
   bool _widgetDarkTheme = false;
   double _widgetTransparency =
       1.0; // 1.0 = fully opaque, 0.0 = fully transparent
@@ -47,7 +48,12 @@ class ThemeProvider extends ChangeNotifier {
   String? get storageTreeUri => _storageTreeUri;
   String? get storageTreeName => _storageTreeName;
   String get dailyTemplate => _dailyTemplate;
-  String get dailyPathFormat => _dailyPathFormat;
+  String get dailyPathDir => _dailyPathDir;
+  String get dailyPathFileName => _dailyPathFileName;
+
+  /// Combined `dir/file` layout, written to the Android widget data so the
+  /// native widget can rebuild today's path without the app running.
+  String get dailyPathFormat => _combinedDailyPathFormat();
   bool get widgetDarkTheme => _widgetDarkTheme;
   double get widgetTransparency => _widgetTransparency;
   double get widgetTextSize => _widgetTextSize;
@@ -75,10 +81,8 @@ class ThemeProvider extends ChangeNotifier {
     _storageTreeUri = prefs.getString(AppConstants.storageTreeUriKey);
     _storageTreeName = prefs.getString(AppConstants.storageTreeNameKey);
     _dailyTemplate = prefs.getString(_templateKey) ?? _getDefaultTemplate();
-    _dailyPathFormat =
-        prefs.getString(AppConstants.dailyPathFormatKey) ??
-            AppConstants.defaultDailyPathFormat;
-    StorageService.applyDailyPathFormat(_dailyPathFormat);
+    _loadDailyPathSettings(prefs);
+    StorageService.applyDailyPathFormat(_dailyPathDir, _dailyPathFileName);
     _widgetDarkTheme = prefs.getBool(AppConstants.widgetThemeKey) ??
         prefs.getBool(_legacyWidgetThemeKey) ??
         false;
@@ -97,6 +101,52 @@ class ThemeProvider extends ChangeNotifier {
     unawaited(_runInitSideEffects(prefs));
     Log.i('🚀 ThemeProvider: Initialization completed');
   }
+
+  /// Load the daily file layout's two settings (directory + file name). On a
+  /// first run after the old single-string layout, migrate it by splitting on
+  /// the last `/` and dropping the `*` wildcard.
+  void _loadDailyPathSettings(SharedPreferences prefs) {
+    final dir = prefs.getString(AppConstants.dailyPathDirKey);
+    final fileName = prefs.getString(AppConstants.dailyPathFileNameKey);
+    if (dir != null && fileName != null) {
+      _dailyPathDir = dir;
+      _dailyPathFileName = fileName.isEmpty
+          ? AppConstants.defaultDailyPathFileName
+          : fileName;
+      return;
+    }
+
+    final legacy = prefs.getString(AppConstants.dailyPathFormatKey);
+    if (legacy != null && legacy.isNotEmpty) {
+      final last = legacy.lastIndexOf('/');
+      if (last == -1) {
+        _dailyPathDir = '';
+        _dailyPathFileName = _dropWildcard(legacy);
+      } else {
+        _dailyPathDir = legacy.substring(0, last);
+        _dailyPathFileName = _dropWildcard(legacy.substring(last + 1));
+      }
+      _persistDailyPathSettings(prefs);
+      return;
+    }
+
+    _dailyPathDir = AppConstants.defaultDailyPathDir;
+    _dailyPathFileName = AppConstants.defaultDailyPathFileName;
+  }
+
+  /// The legacy `*` wildcard is dropped: new daily notes are named after the
+  /// configured file name, and scanning already accepts every `.md` note in
+  /// a day directory. The canonical create name is `daily`.
+  String _dropWildcard(String value) => value.replaceAll('*', 'daily');
+
+  void _persistDailyPathSettings(SharedPreferences prefs) {
+    prefs.setString(AppConstants.dailyPathDirKey, _dailyPathDir);
+    prefs.setString(AppConstants.dailyPathFileNameKey, _dailyPathFileName);
+  }
+
+  /// Combined `dir/file` layout for the Android widget.
+  String _combinedDailyPathFormat() =>
+      _dailyPathDir.isEmpty ? _dailyPathFileName : '$_dailyPathDir/$_dailyPathFileName';
 
   Future<void> _runInitSideEffects(SharedPreferences prefs) async {
     // Migrate legacy (double-prefixed) keys to their canonical names.
@@ -122,10 +172,11 @@ class ThemeProvider extends ChangeNotifier {
         AppConstants.storageTreeUriKey,
         _storageTreeUri ?? '',
       );
-      // The widget also needs the daily file layout to build today's path.
+      // The widget also needs the daily file layout to build today's path
+      // (written as a combined `dir/file` format).
       await HomeWidget.saveWidgetData<String>(
         AppConstants.dailyPathFormatKey,
-        _dailyPathFormat,
+        dailyPathFormat,
       );
     } catch (e, stackTrace) {
       Log.w('⚠️ ThemeProvider: Failed to sync widget storage config on load',
@@ -211,7 +262,7 @@ class ThemeProvider extends ChangeNotifier {
       );
       await HomeWidget.saveWidgetData<String>(
         AppConstants.dailyPathFormatKey,
-        _dailyPathFormat,
+        dailyPathFormat,
       );
     } catch (e, stackTrace) {
       Log.w('⚠️ ThemeProvider: Failed to sync widget storage config',
@@ -226,20 +277,39 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Configure how a calendar date maps to that day's note file path (see
-  /// lib/utils/daily_path_format.dart). The caller should reload the daily
-  /// files afterwards so the new layout takes effect.
-  Future<void> setDailyPathFormat(String format) async {
-    final trimmed = format.trim();
-    _dailyPathFormat = trimmed.isEmpty
-        ? AppConstants.defaultDailyPathFormat
-        : trimmed;
+  /// Configure the directory part of the daily file layout (see
+  /// lib/utils/daily_path_format.dart): where each date's note lives,
+  /// supporting date expansion (`%Y`, `%m`, `%d`). The caller should reload
+  /// the daily files afterwards so the new layout takes effect.
+  Future<void> setDailyPathDir(String dir) async {
+    // An empty directory is a valid flat layout at the storage root; the
+    // dialog still requires a date token in at least one of the two parts.
+    _dailyPathDir = dir.trim();
     final prefs = SharedPrefsService.instance;
-    await prefs.setString(AppConstants.dailyPathFormatKey, _dailyPathFormat);
-    StorageService.applyDailyPathFormat(_dailyPathFormat);
+    await prefs.setString(AppConstants.dailyPathDirKey, _dailyPathDir);
+    StorageService.applyDailyPathFormat(_dailyPathDir, _dailyPathFileName);
     await _syncWidgetStorageConfig();
     notifyListeners();
-    Log.i('🚀 ThemeProvider: Daily path format set to $_dailyPathFormat');
+    Log.i('🚀 ThemeProvider: Daily path directory set to $_dailyPathDir');
+  }
+
+  /// Configure the file name part of the daily file layout (see
+  /// lib/utils/daily_path_format.dart): the name new daily notes are created
+  /// with, supporting date expansion (`%Y`, `%m`, `%d`). The caller should
+  /// reload the daily files afterwards so the new layout takes effect.
+  Future<void> setDailyPathFileName(String fileName) async {
+    final trimmed = fileName.trim();
+    _dailyPathFileName = trimmed.isEmpty
+        ? AppConstants.defaultDailyPathFileName
+        : trimmed;
+    final prefs = SharedPrefsService.instance;
+    await prefs.setString(
+        AppConstants.dailyPathFileNameKey, _dailyPathFileName);
+    StorageService.applyDailyPathFormat(_dailyPathDir, _dailyPathFileName);
+    await _syncWidgetStorageConfig();
+    notifyListeners();
+    Log.i(
+        '🚀 ThemeProvider: Daily path file name set to $_dailyPathFileName');
   }
 
   Future<void> setWidgetTheme(bool isDark) async {

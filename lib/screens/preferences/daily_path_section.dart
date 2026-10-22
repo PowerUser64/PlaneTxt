@@ -4,9 +4,11 @@ import 'package:planetxt/screens/preferences/storage_section.dart';
 import 'package:provider/provider.dart';
 
 /// Lets the user configure how a calendar date maps to that day's note file
-/// path (see lib/utils/daily_path_format.dart). Defaults to the classic
-/// `dailies/YYYYMMDD.md`; a Notes-style repository can use e.g.
-/// `cal/%Y/%m/%d/daily.md` (or `cal/%Y/%m/%d/*.md` for any file name).
+/// path (see lib/utils/daily_path_format.dart), as two settings: a directory
+/// and a file name, both supporting date expansion (`%Y`, `%m`, `%d`).
+/// Defaults are `dailies` + `%Y%m%d.md`; a Notes-style repository can use
+/// `cal/%Y/%m/%d` + `daily.md`. Every `.md` note inside a day's directory is
+/// indexed; new daily notes are named after the configured file name.
 class DailyPathTile extends StatelessWidget {
   const DailyPathTile({super.key});
 
@@ -14,12 +16,14 @@ class DailyPathTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<ThemeProvider>(
       builder: (context, themeProvider, child) {
+        final dir = themeProvider.dailyPathDir;
+        final fileName = themeProvider.dailyPathFileName;
         return ListTile(
           leading: const Icon(Icons.calendar_today),
           title: const Text('Daily File Layout'),
-          subtitle: Text(themeProvider.dailyPathFormat.isEmpty
-              ? 'No layout set'
-              : themeProvider.dailyPathFormat),
+          subtitle: Text(
+            dir.isEmpty ? fileName : '$dir/$fileName',
+          ),
           trailing: const Icon(Icons.arrow_forward_ios),
           onTap: () => _edit(context, themeProvider),
         );
@@ -28,14 +32,20 @@ class DailyPathTile extends StatelessWidget {
   }
 
   Future<void> _edit(BuildContext context, ThemeProvider themeProvider) async {
-    final format = await showDailyPathDialog(
+    final result = await showDailyPathDialog(
       context,
-      currentFormat: themeProvider.dailyPathFormat,
+      directory: themeProvider.dailyPathDir,
+      fileName: themeProvider.dailyPathFileName,
     );
-    if (format == null || !context.mounted) return;
-    if (format == themeProvider.dailyPathFormat) return;
+    if (result == null || !context.mounted) return;
+    final (dir, fileName) = result;
+    if (dir == themeProvider.dailyPathDir &&
+        fileName == themeProvider.dailyPathFileName) {
+      return;
+    }
 
-    await themeProvider.setDailyPathFormat(format);
+    await themeProvider.setDailyPathDir(dir);
+    await themeProvider.setDailyPathFileName(fileName);
     if (!context.mounted) return;
     // The layout change moves the daily files and their scan directory:
     // reload storage + reattach the file monitor so the new paths take
@@ -49,20 +59,23 @@ class DailyPathTile extends StatelessWidget {
   }
 }
 
-/// Ask the user for a daily file layout format string. Returns the new
-/// format, or `null` when cancelled. Validates that the format maps a date
-/// (contains `%Y`, `%m` or `%d`).
-Future<String?> showDailyPathDialog(
+/// Ask the user for a daily file layout: a directory and a file name, both
+/// supporting date expansion. Returns `(directory, fileName)`, or `null`
+/// when cancelled. Validates that the layout maps a date (a `%Y`, `%m` or
+/// `%d` token in either part).
+Future<(String, String)?> showDailyPathDialog(
   BuildContext context, {
-  required String currentFormat,
+  required String directory,
+  required String fileName,
 }) async {
-  final controller = TextEditingController(text: currentFormat);
+  final dirController = TextEditingController(text: directory);
+  final nameController = TextEditingController(text: fileName);
   final messenger = ScaffoldMessenger.of(context);
 
-  final result = await showDialog<String>(
+  final result = await showDialog<(String, String)>(
     context: context,
     builder: (context) => AlertDialog(
-      // The intro/examples text is long; keep it scrollable so the text field
+      // The intro/examples text is long; keep it scrollable so the text fields
       // and Cancel/Save buttons stay visible when the keyboard appears.
       scrollable: true,
       title: const Text('Daily File Layout'),
@@ -73,36 +86,48 @@ Future<String?> showDailyPathDialog(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Set the path each day\'s note is stored at, relative to your '
-              'storage folder. Tokens are replaced with the date:\n'
+              'Two settings place each day\'s note inside your storage '
+              'folder. Both support date expansion:\n'
               '%Y year, %m month, %d day.',
               style: TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 8),
-            const Text('* matches any file name in a day directory.',
-                style: TextStyle(fontSize: 14)),
+            const Text(
+              'The directory sets where each date lives. When it carries '
+              'the date, every .md note inside that directory is indexed; '
+              'the file name only names new notes.',
+              style: TextStyle(fontSize: 14),
+            ),
             const SizedBox(height: 16),
             const Text('Examples:',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
             const SizedBox(height: 8),
-            const Text('  dailies/%Y%m%d.md',
+            const Text('  dailies  +  %Y%m%d.md',
                 style: TextStyle(fontFamily: 'monospace', fontSize: 12)),
             const Text('    dailies/20260713.md (default layout)',
                 style: TextStyle(fontSize: 12)),
-            const Text('  cal/%Y/%m/%d/daily.md',
+            const Text('  cal/%Y/%m/%d  +  daily.md',
                 style: TextStyle(fontFamily: 'monospace', fontSize: 12)),
-            const Text('    cal/2026/07/13/daily.md (Notes-style repo)',
-                style: TextStyle(fontSize: 12)),
-            const Text('  cal/%Y/%m/%d/*.md',
-                style: TextStyle(fontFamily: 'monospace', fontSize: 12)),
-            const Text('    any .md file under cal/2026/07/13/',
+            const Text(
+                '    cal/2026/07/13/daily.md, and any other .md note in '
+                'that day\'s directory is indexed too',
                 style: TextStyle(fontSize: 12)),
             const SizedBox(height: 16),
             TextField(
-              controller: controller,
+              controller: dirController,
               decoration: const InputDecoration(
-                labelText: 'Daily file path format',
-                hintText: 'cal/%Y/%m/%d/daily.md',
+                labelText: 'Directory',
+                hintText: 'dailies, or cal/%Y/%m/%d',
+                border: OutlineInputBorder(),
+              ),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'File name',
+                hintText: '%Y%m%d.md, or daily.md',
                 border: OutlineInputBorder(),
               ),
               style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
@@ -117,24 +142,28 @@ Future<String?> showDailyPathDialog(
         ),
         TextButton(
           onPressed: () {
-            final format = controller.text.trim();
-            if (!_hasDateToken(format)) {
-              messenger.showSnackBar(SnackBar(
+            final dir = dirController.text.trim();
+            final name = nameController.text.trim();
+            if (!_hasDateToken(dir) && !_hasDateToken(name)) {
+              messenger.showSnackBar(const SnackBar(
                 content: Text(
-                    'Invalid format: add %Y, %m or %d so a date maps to a '
+                    'Invalid layout: add %Y, %m or %d so a date maps to a '
                     'path'),
                 backgroundColor: Colors.red,
               ));
               return;
             }
-            if (format.startsWith('/') || format.contains('..')) {
-              messenger.showSnackBar(SnackBar(
-                content: Text('Invalid format: path must be relative'),
+            if (dir.startsWith('/') ||
+                name.contains('/') ||
+                dir.contains('..') ||
+                name.contains('..')) {
+              messenger.showSnackBar(const SnackBar(
+                content: Text('Invalid layout: path must stay relative'),
                 backgroundColor: Colors.red,
               ));
               return;
             }
-            Navigator.of(context).pop(format);
+            Navigator.of(context).pop((dir, name));
           },
           child: const Text('Save'),
         ),
@@ -144,5 +173,5 @@ Future<String?> showDailyPathDialog(
   return result;
 }
 
-bool _hasDateToken(String format) =>
-    format.contains('%Y') || format.contains('%m') || format.contains('%d');
+bool _hasDateToken(String value) =>
+    value.contains('%Y') || value.contains('%m') || value.contains('%d');

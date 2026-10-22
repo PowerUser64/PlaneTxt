@@ -24,7 +24,7 @@ class FileMonitorService {
   static const Duration _watchDebounce = Duration(seconds: 2);
 
   /// The configured daily file layout (see DailyPathFormat).
-  DailyPathFormat get _format => DailyPathFormat(StorageService.dailyPathFormat);
+  DailyPathFormat get _format => StorageService.dailyFormat;
 
   // Track dates recently scheduled by DailyFileProvider to avoid
   // the FileMonitorService cancelling those notifications immediately.

@@ -32,19 +32,30 @@ class StorageService {
   static const String notesDirName = 'notes';
 
   // How a calendar date maps to that day's note file path (see
-  // DailyPathFormat). Kept here so repositories/services build paths without
-  // a ThemeProvider dependency; ThemeProvider applies it from preferences.
-  static String dailyPathFormat = AppConstants.defaultDailyPathFormat;
-  static void applyDailyPathFormat(String format) {
-    final trimmed = format.trim();
-    dailyPathFormat =
-        trimmed.isEmpty ? AppConstants.defaultDailyPathFormat : trimmed;
+  // DailyPathFormat), as a directory setting and a file name setting. Kept
+  // here so repositories/services build paths without a ThemeProvider
+  // dependency; ThemeProvider applies them from preferences.
+  static String dailyPathDir = AppConstants.defaultDailyPathDir;
+  static String dailyPathFileName = AppConstants.defaultDailyPathFileName;
+  static void applyDailyPathFormat(String dir, String fileName) {
+    // An empty directory is a valid flat layout at the storage root (e.g.
+    // `%Y%m%d.md` directly at the root); only a file name is required.
+    dailyPathDir = dir.trim();
+    dailyPathFileName = fileName.trim().isEmpty
+        ? AppConstants.defaultDailyPathFileName
+        : fileName.trim();
+    if (dailyPathDir.isEmpty && dailyPathFileName.isEmpty) {
+      dailyPathDir = AppConstants.defaultDailyPathDir;
+    }
   }
 
+  /// The active [DailyPathFormat] built from the two settings.
+  static DailyPathFormat get dailyFormat =>
+      DailyPathFormat(dailyPathDir, dailyPathFileName);
+
   /// Directory scanned for daily files: the literal prefix of the configured
-  /// format (e.g. `dailies`, or `cal` for `cal/%Y/%m/%d/daily.md`).
-  static String get dailiesDirName =>
-      DailyPathFormat(dailyPathFormat).scanDir;
+  /// directory setting (e.g. `dailies`, or `cal` for `cal/%Y/%m/%d`).
+  static String get dailiesDirName => dailyFormat.scanDir;
 
   FileStore? _store;
   Directory? _privateRoot;
@@ -61,9 +72,8 @@ class StorageService {
       _store?.rootDescription ?? 'Not initialized';
 
   /// Relative daily file path for a YYYYMMDD [date], from the configured
-  /// daily file layout format.
-  static String dailyPath(String date) =>
-      DailyPathFormat(dailyPathFormat).pathForDate(date);
+  /// daily file layout (directory + file name settings).
+  static String dailyPath(String date) => dailyFormat.pathForDate(date);
 
   /// Relative note path for a path relative to the notes directory.
   static String notePath(String relativeToNotes) =>

@@ -73,12 +73,12 @@ Idea: one Markdown file per day, readable forever.
 
 The section headers are matched by configurable patterns, so you can rename them.
 
-The daily file layout is configurable in Settings → Daily File Layout: a
-`strftime`-style format maps each date to its note path. The default is
-`dailies/%Y%m%d.md`; a Notes-style repository can use e.g.
-`cal/%Y/%m/%d/daily.md` (one file per day) or `cal/%Y/%m/%d/*.md` (any file
-name inside each day directory). Tokens: `%Y` year, `%m` month, `%d` day,
-`*` any file name.
+The daily file layout is configurable in Settings → Daily File Layout as two
+settings: a directory and a file name, both supporting date expansion (`%Y`
+year, `%m` month, `%d` day). The default is `dailies` + `%Y%m%d.md`; a
+Notes-style repository can use `cal/%Y/%m/%d` + `daily.md`. When the
+directory carries the date, every `.md` note inside that day's directory is
+indexed; new daily notes are named after the configured file name.
 
 ## Install
 

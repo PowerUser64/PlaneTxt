@@ -77,7 +77,15 @@ class AppConstants {
   static const String todoHeaderRegexKey = 'todo_header_regex';
   static const String eventHeaderRegexKey = 'event_header_regex';
   // Daily file path layout: how a calendar date maps to that day's note file
-  // (see lib/utils/daily_path_format.dart). Default `dailies/YYYYMMDD.md`.
+  // (see lib/utils/daily_path_format.dart). Stored as two settings - a
+  // directory and a file name, both supporting date expansion. Defaults:
+  // `dailies` directory + `%Y%m%d.md` file name.
+  static const String dailyPathDirKey = 'daily_path_dir';
+  static const String dailyPathFileNameKey = 'daily_path_file_name';
+  static const String defaultDailyPathDir = 'dailies';
+  static const String defaultDailyPathFileName = '%Y%m%d.md';
+  // Legacy single-string layout (kept for migration + the Android widget,
+  // which reads a combined `dir/file` format from widget data).
   static const String dailyPathFormatKey = 'daily_path_format';
   static const String defaultDailyPathFormat = 'dailies/%Y%m%d.md';
 
