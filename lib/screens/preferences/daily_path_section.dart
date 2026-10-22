@@ -62,6 +62,9 @@ Future<String?> showDailyPathDialog(
   final result = await showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
+      // The intro/examples text is long; keep it scrollable so the text field
+      // and Cancel/Save buttons stay visible when the keyboard appears.
+      scrollable: true,
       title: const Text('Daily File Layout'),
       content: SizedBox(
         width: double.maxFinite,
