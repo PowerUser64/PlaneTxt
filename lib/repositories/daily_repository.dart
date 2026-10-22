@@ -2,12 +2,14 @@ import 'package:planetxt/models/daily_file.dart';
 import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/repositories/base_repository.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/conflict_files.dart';
+import 'package:planetxt/utils/daily_path_format.dart';
 import 'package:planetxt/utils/logger.dart';
 
 class DailyRepository extends BaseRepository<DailyFile> {
-  static final _datePattern = RegExp(r'(\d{8})\.md$');
-
   DailyRepository(super.storageService);
+
+  DailyPathFormat get _format => DailyPathFormat(StorageService.dailyPathFormat);
 
   @override
   String get scanDir => StorageService.dailiesDirName;
@@ -18,21 +20,19 @@ class DailyRepository extends BaseRepository<DailyFile> {
   @override
   String get tag => '📅 DailyRepository';
 
+  /// Whether the configured layout nests dates in subdirectories
+  /// (`cal/YYYY/MM/DD/...`): such layouts need a recursive scan.
   @override
-  String? matchEntry(StoreEntry entry) {
-    final fileName = entry.relPath.split('/').last;
-    final match = _datePattern.firstMatch(fileName);
-    return match?.group(1);
-  }
+  bool get recursive => _format.recursive;
+
+  @override
+  String? matchEntry(StoreEntry entry) => _format.dateFromPath(entry.relPath);
 
   @override
   DailyFile? itemFromContent(StoreEntry entry, String content) {
-    final fileName = entry.relPath.split('/').last;
-    final dateMatch = _datePattern.firstMatch(fileName);
-    if (dateMatch == null) return null;
-
-    return DailyFile(
-        path: entry.relPath, date: dateMatch.group(1)!, content: content);
+    final date = _format.dateFromPath(entry.relPath);
+    if (date == null) return null;
+    return DailyFile(path: entry.relPath, date: date, content: content);
   }
 
   @override
@@ -78,7 +78,22 @@ class DailyRepository extends BaseRepository<DailyFile> {
       return cache[date];
     }
 
-    final relPath = StorageService.dailyPath(date);
+    // A wildcard layout (`cal/%Y/%m/%d/*.md`) stores the day under whatever
+    // name it already has - locate the real file rather than assuming the
+    // canonical `daily.md` name.
+    final String relPath;
+    if (_format.hasWildcard) {
+      final chosen = _pickDailyEntry(await store.list(_format.directoryForDate(date)));
+      if (chosen == null) {
+        Log.d('📅 DailyRepository: No file exists for date $date');
+        cache.remove(date);
+        lastModified.remove(date);
+        return null;
+      }
+      relPath = chosen.relPath;
+    } else {
+      relPath = StorageService.dailyPath(date);
+    }
     final currentMod = await store.modified(relPath);
 
     if (currentMod == null && !await store.exists(relPath)) {
@@ -105,6 +120,20 @@ class DailyRepository extends BaseRepository<DailyFile> {
       rememberDisk(relPath, currentMod, dailyFile.content);
     }
     return dailyFile;
+  }
+
+  /// Pick the day's file from a (non-recursive) listing of its directory:
+  /// prefer the canonical `daily.md`, else the first `.md` file (excluding
+  /// conflict copies). Returns null when the day has no file.
+  StoreEntry? _pickDailyEntry(List<StoreEntry> entries) {
+    final candidates =
+        entries.where((e) => !isConflictCopy(e.relPath)).toList();
+    if (candidates.isEmpty) return null;
+    for (final entry in candidates) {
+      if (entry.relPath.split('/').last == 'daily.md') return entry;
+    }
+    candidates.sort((a, b) => a.relPath.compareTo(b.relPath));
+    return candidates.first;
   }
 
   /// Save daily file. With [expected], fails with [FileConflictException]

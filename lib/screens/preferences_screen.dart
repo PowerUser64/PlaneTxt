@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:planetxt/providers/directory_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
+import 'package:planetxt/screens/preferences/daily_path_section.dart';
 import 'package:planetxt/screens/preferences/debug_section.dart';
 import 'package:planetxt/screens/preferences/header_patterns_section.dart';
 import 'package:planetxt/screens/preferences/reminders_section.dart';
@@ -139,6 +140,12 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                 );
               },
             ),
+          ]),
+
+          const Divider(),
+
+          _buildSection(context, title: 'Daily File Layout', children: [
+            const DailyPathTile(),
           ]),
 
           const Divider(),

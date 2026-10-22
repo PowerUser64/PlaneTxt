@@ -76,6 +76,10 @@ class AppConstants {
   static const String widgetTextColorKey = 'widget_text_color';
   static const String todoHeaderRegexKey = 'todo_header_regex';
   static const String eventHeaderRegexKey = 'event_header_regex';
+  // Daily file path layout: how a calendar date maps to that day's note file
+  // (see lib/utils/daily_path_format.dart). Default `dailies/YYYYMMDD.md`.
+  static const String dailyPathFormatKey = 'daily_path_format';
+  static const String defaultDailyPathFormat = 'dailies/%Y%m%d.md';
 
   // Widget data keys
   static const String widgetDailyContentKey = 'widget_daily_content';

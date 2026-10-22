@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:planetxt/models/daily_file.dart';
 import 'package:planetxt/services/notification_service.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/daily_path_format.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
 
@@ -22,7 +23,8 @@ class FileMonitorService {
   static const Duration _pollingInterval = Duration(seconds: 30);
   static const Duration _watchDebounce = Duration(seconds: 2);
 
-  static final _datePattern = RegExp(r'(\d{8})\.md$');
+  /// The configured daily file layout (see DailyPathFormat).
+  DailyPathFormat get _format => DailyPathFormat(StorageService.dailyPathFormat);
 
   // Track dates recently scheduled by DailyFileProvider to avoid
   // the FileMonitorService cancelling those notifications immediately.
@@ -70,7 +72,10 @@ class FileMonitorService {
     final store = _storageService.store;
     if (store == null || !store.supportsNativeWatch) return false;
     try {
-      final stream = store.watchDirectory(StorageService.dailiesDirName);
+      final stream = store.watchDirectory(
+        StorageService.dailiesDirName,
+        recursive: _format.recursive,
+      );
       if (stream == null) return false;
       _watchSubscription?.cancel();
       _watchSubscription = stream.listen(
@@ -130,17 +135,19 @@ class FileMonitorService {
     if (store == null) return;
 
     try {
-      final entries = await store.list(StorageService.dailiesDirName);
+      final entries = await store.list(
+        StorageService.dailiesDirName,
+        recursive: _format.recursive,
+      );
 
       // Track which dates still have files
       final existingDates = <String>{};
       final today = _todayString();
 
       for (final entry in entries) {
-        final dateMatch = _datePattern.firstMatch(entry.relPath);
-        if (dateMatch == null) continue;
+        final date = _format.dateFromPath(entry.relPath);
+        if (date == null) continue;
 
-        final date = dateMatch.group(1)!;
         existingDates.add(date);
         final lastModified = entry.modified;
         if (lastModified == null) continue;
@@ -223,15 +230,17 @@ class FileMonitorService {
       // Review existing notifications first to remove invalid ones
       await _notificationService.reviewNotifications();
 
-      final entries = await store.list(StorageService.dailiesDirName);
+      final entries = await store.list(
+        StorageService.dailiesDirName,
+        recursive: _format.recursive,
+      );
 
       final today = _todayString();
       int scheduledCount = 0;
       for (final entry in entries) {
-        final dateMatch = _datePattern.firstMatch(entry.relPath);
-        if (dateMatch == null) continue;
+        final date = _format.dateFromPath(entry.relPath);
+        if (date == null) continue;
 
-        final date = dateMatch.group(1)!;
         if (date.compareTo(today) < 0) continue;
         final String content;
         try {
@@ -274,11 +283,14 @@ class FileMonitorService {
       // is a full directory scan on SAF), so the change monitor won't treat
       // every existing file as "new" on its first poll.
       try {
-        final entries = await store.list(StorageService.dailiesDirName);
+        final entries = await store.list(
+          StorageService.dailiesDirName,
+          recursive: _format.recursive,
+        );
         for (final entry in entries) {
-          final dateMatch = _datePattern.firstMatch(entry.relPath);
-          if (dateMatch == null || entry.modified == null) continue;
-          _lastModified[dateMatch.group(1)!] = entry.modified!;
+          final date = _format.dateFromPath(entry.relPath);
+          if (date == null || entry.modified == null) continue;
+          _lastModified[date] = entry.modified!;
         }
       } catch (_) {}
 

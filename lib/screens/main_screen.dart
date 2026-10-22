@@ -16,6 +16,7 @@ import 'package:planetxt/services/intent_handler_service.dart';
 import 'package:planetxt/services/notification_service.dart';
 import 'package:planetxt/services/shared_prefs_service.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/daily_path_format.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:provider/provider.dart';
 
@@ -254,7 +255,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (store == null) return;
     try {
       final hasFiles =
-          (await store.list(StorageService.dailiesDirName)).isNotEmpty ||
+          (await store.list(
+            StorageService.dailiesDirName,
+            recursive: DailyPathFormat(StorageService.dailyPathFormat).recursive,
+          )).isNotEmpty ||
               (await store.list(StorageService.notesDirName, recursive: true))
                   .isNotEmpty;
       await prefs.setBool(AppConstants.storageChoiceOfferedKey, true);

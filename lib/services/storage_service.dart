@@ -2,9 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:planetxt/constants/app_constants.dart';
 import 'package:planetxt/services/file_store/file_store.dart';
 import 'package:planetxt/services/file_store/io_file_store.dart';
 import 'package:planetxt/services/file_store/saf_file_store.dart';
+import 'package:planetxt/utils/daily_path_format.dart';
 import 'package:planetxt/utils/logger.dart';
 
 export 'package:planetxt/services/file_store/file_store.dart'
@@ -26,9 +28,23 @@ class StorageService {
   factory StorageService() => _instance;
   StorageService._internal();
 
-  static const String dailiesDirName = 'dailies';
   static const String archivesDirName = 'archives';
   static const String notesDirName = 'notes';
+
+  // How a calendar date maps to that day's note file path (see
+  // DailyPathFormat). Kept here so repositories/services build paths without
+  // a ThemeProvider dependency; ThemeProvider applies it from preferences.
+  static String dailyPathFormat = AppConstants.defaultDailyPathFormat;
+  static void applyDailyPathFormat(String format) {
+    final trimmed = format.trim();
+    dailyPathFormat =
+        trimmed.isEmpty ? AppConstants.defaultDailyPathFormat : trimmed;
+  }
+
+  /// Directory scanned for daily files: the literal prefix of the configured
+  /// format (e.g. `dailies`, or `cal` for `cal/%Y/%m/%d/daily.md`).
+  static String get dailiesDirName =>
+      DailyPathFormat(dailyPathFormat).scanDir;
 
   FileStore? _store;
   Directory? _privateRoot;
@@ -44,8 +60,10 @@ class StorageService {
   String get storageDescription =>
       _store?.rootDescription ?? 'Not initialized';
 
-  /// Relative daily file path for a YYYYMMDD [date].
-  static String dailyPath(String date) => '$dailiesDirName/$date.md';
+  /// Relative daily file path for a YYYYMMDD [date], from the configured
+  /// daily file layout format.
+  static String dailyPath(String date) =>
+      DailyPathFormat(dailyPathFormat).pathForDate(date);
 
   /// Relative note path for a path relative to the notes directory.
   static String notePath(String relativeToNotes) =>

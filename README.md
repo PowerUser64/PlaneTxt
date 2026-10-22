@@ -73,6 +73,13 @@ Idea: one Markdown file per day, readable forever.
 
 The section headers are matched by configurable patterns, so you can rename them.
 
+The daily file layout is configurable in Settings → Daily File Layout: a
+`strftime`-style format maps each date to its note path. The default is
+`dailies/%Y%m%d.md`; a Notes-style repository can use e.g.
+`cal/%Y/%m/%d/daily.md` (one file per day) or `cal/%Y/%m/%d/*.md` (any file
+name inside each day directory). Tokens: `%Y` year, `%m` month, `%d` day,
+`*` any file name.
+
 ## Install
 
 - **Android**: [Google Play](https://play.google.com/store/apps/details?id=fr.rvier.planetxt), [F-Droid](https://f-droid.org/packages/fr.rvier.planetxt/), or the APKs attached to each [GitHub release](https://github.com/brvier/PlaneTxt/releases).

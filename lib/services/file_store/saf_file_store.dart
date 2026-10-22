@@ -154,7 +154,7 @@ class SafFileStore extends FileStore {
       });
 
   @override
-  Stream<void>? watchDirectory(String relDir) => null;
+  Stream<void>? watchDirectory(String relDir, {bool recursive = false}) => null;
 
   // --- plumbing ------------------------------------------------------------
 

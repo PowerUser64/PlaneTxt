@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 
 import 'package:planetxt/constants/app_constants.dart';
+import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/services/widget_service.dart';
 import 'package:planetxt/themes/app_themes.dart';
 import 'package:planetxt/utils/logger.dart';
@@ -18,6 +19,7 @@ class ThemeProvider extends ChangeNotifier {
   String? _storageTreeUri;
   String? _storageTreeName;
   String _dailyTemplate = '';
+  String _dailyPathFormat = AppConstants.defaultDailyPathFormat;
   bool _widgetDarkTheme = false;
   double _widgetTransparency =
       1.0; // 1.0 = fully opaque, 0.0 = fully transparent
@@ -45,6 +47,7 @@ class ThemeProvider extends ChangeNotifier {
   String? get storageTreeUri => _storageTreeUri;
   String? get storageTreeName => _storageTreeName;
   String get dailyTemplate => _dailyTemplate;
+  String get dailyPathFormat => _dailyPathFormat;
   bool get widgetDarkTheme => _widgetDarkTheme;
   double get widgetTransparency => _widgetTransparency;
   double get widgetTextSize => _widgetTextSize;
@@ -72,6 +75,10 @@ class ThemeProvider extends ChangeNotifier {
     _storageTreeUri = prefs.getString(AppConstants.storageTreeUriKey);
     _storageTreeName = prefs.getString(AppConstants.storageTreeNameKey);
     _dailyTemplate = prefs.getString(_templateKey) ?? _getDefaultTemplate();
+    _dailyPathFormat =
+        prefs.getString(AppConstants.dailyPathFormatKey) ??
+            AppConstants.defaultDailyPathFormat;
+    StorageService.applyDailyPathFormat(_dailyPathFormat);
     _widgetDarkTheme = prefs.getBool(AppConstants.widgetThemeKey) ??
         prefs.getBool(_legacyWidgetThemeKey) ??
         false;
@@ -114,6 +121,11 @@ class ThemeProvider extends ChangeNotifier {
       await HomeWidget.saveWidgetData<String>(
         AppConstants.storageTreeUriKey,
         _storageTreeUri ?? '',
+      );
+      // The widget also needs the daily file layout to build today's path.
+      await HomeWidget.saveWidgetData<String>(
+        AppConstants.dailyPathFormatKey,
+        _dailyPathFormat,
       );
     } catch (e, stackTrace) {
       Log.w('⚠️ ThemeProvider: Failed to sync widget storage config on load',
@@ -197,6 +209,10 @@ class ThemeProvider extends ChangeNotifier {
         AppConstants.storageTreeUriKey,
         _storageTreeUri ?? '',
       );
+      await HomeWidget.saveWidgetData<String>(
+        AppConstants.dailyPathFormatKey,
+        _dailyPathFormat,
+      );
     } catch (e, stackTrace) {
       Log.w('⚠️ ThemeProvider: Failed to sync widget storage config',
           error: e, stackTrace: stackTrace);
@@ -208,6 +224,22 @@ class ThemeProvider extends ChangeNotifier {
     final prefs = SharedPrefsService.instance;
     await prefs.setString(_templateKey, template);
     notifyListeners();
+  }
+
+  /// Configure how a calendar date maps to that day's note file path (see
+  /// lib/utils/daily_path_format.dart). The caller should reload the daily
+  /// files afterwards so the new layout takes effect.
+  Future<void> setDailyPathFormat(String format) async {
+    final trimmed = format.trim();
+    _dailyPathFormat = trimmed.isEmpty
+        ? AppConstants.defaultDailyPathFormat
+        : trimmed;
+    final prefs = SharedPrefsService.instance;
+    await prefs.setString(AppConstants.dailyPathFormatKey, _dailyPathFormat);
+    StorageService.applyDailyPathFormat(_dailyPathFormat);
+    await _syncWidgetStorageConfig();
+    notifyListeners();
+    Log.i('🚀 ThemeProvider: Daily path format set to $_dailyPathFormat');
   }
 
   Future<void> setWidgetTheme(bool isDark) async {

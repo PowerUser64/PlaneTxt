@@ -76,8 +76,9 @@ abstract class FileStore {
   Future<void> rename(String fromRelPath, String toRelPath);
 
   /// Native change events for [relDir], or `null` when unsupported
-  /// (see [supportsNativeWatch]).
-  Stream<void>? watchDirectory(String relDir);
+  /// (see [supportsNativeWatch]). [recursive] watches subdirectories too
+  /// (used for nested daily layouts like `cal/YYYY/MM/DD/...`).
+  Stream<void>? watchDirectory(String relDir, {bool recursive = false});
 }
 
 /// Normalises a relative path: collapses `//`, strips leading/trailing `/`.

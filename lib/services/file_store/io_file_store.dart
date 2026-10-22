@@ -123,9 +123,9 @@ class IoFileStore extends FileStore {
   }
 
   @override
-  Stream<void>? watchDirectory(String relDir) {
+  Stream<void>? watchDirectory(String relDir, {bool recursive = false}) {
     try {
-      return Directory(_abs(relDir)).watch();
+      return Directory(_abs(relDir)).watch(recursive: recursive);
     } catch (_) {
       return null;
     }

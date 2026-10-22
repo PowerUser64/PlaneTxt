@@ -16,8 +16,9 @@ object FileHelper {
     private const val FLUTTER_KEY_PREFIX = "flutter."
     private const val STORAGE_PATH_KEY = "storage_path"
     private const val STORAGE_TREE_URI_KEY = "storage_tree_uri"
+    private const val DAILY_PATH_FORMAT_KEY = "daily_path_format"
+    private const val DEFAULT_DAILY_PATH_FORMAT = "dailies/%Y%m%d.md"
     private const val ORG_DIR_NAME = "Org"
-    private const val DAILIES_DIR_NAME = "dailies"
     private const val WIDGET_DAILY_CONTENT_KEY = "widget_daily_content"
     private const val WIDGET_DATE_KEY = "widget_date"
 
@@ -50,18 +51,29 @@ object FileHelper {
     }
 
     /**
-     * Read `dailies/<date>.md` from a SAF tree. Returns null when the file
-     * doesn't exist or can't be read.
+     * Read today's note from a SAF tree, using the configured daily file
+     * layout (e.g. `dailies/<date>.md`, or `cal/%Y/%m/%d/daily.md`). Returns
+     * null when the file doesn't exist or can't be read.
      */
     fun readDailyContentFromTree(context: Context, treeUri: Uri, date: String): String? {
         return try {
-            val dailiesId = findChildDocumentId(
-                context, treeUri,
-                DocumentsContract.getTreeDocumentId(treeUri),
-                DAILIES_DIR_NAME
-            ) ?: return null
-            val fileId = findChildDocumentId(context, treeUri, dailiesId, "$date.md")
-                ?: return null
+            val relPath = applyDailyPathFormat(getDailyPathFormat(context), date)
+            val parts = relPath.split('/')
+            if (parts.isEmpty()) return null
+            val fileName = parts.last()
+            val dirParts = parts.dropLast(1)
+
+            var dirId = DocumentsContract.getTreeDocumentId(treeUri)
+            for (segment in dirParts) {
+                dirId = findChildDocumentId(context, treeUri, dirId, segment)
+                    ?: return null
+            }
+            val fileId = if (fileName == "*") {
+                // `*` layout: any .md file in the day directory (prefer daily.md).
+                findAnyMarkdownChild(context, treeUri, dirId, "daily.md")
+            } else {
+                findChildDocumentId(context, treeUri, dirId, fileName)
+            } ?: return null
             val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, fileId)
             context.contentResolver.openInputStream(docUri)?.use { input ->
                 BufferedReader(InputStreamReader(input)).readText()
@@ -94,6 +106,84 @@ object FileHelper {
             }
         }
         return null
+    }
+
+    /**
+     * Find any `.md` child of [parentDocId] (preferring [preferName]),
+     * skipping conflict copies. Used by the `*` daily file layout.
+     */
+    private fun findAnyMarkdownChild(
+        context: Context,
+        treeUri: Uri,
+        parentDocId: String,
+        preferName: String
+    ): String? {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri, parentDocId
+        )
+        var preferred: String? = null
+        var first: String? = null
+        context.contentResolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME
+            ),
+            null, null, null
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(1) ?: continue
+                if (!name.endsWith(".md") || name.contains(".sync-conflict-")) {
+                    continue
+                }
+                val id = cursor.getString(0)
+                if (first == null) first = id
+                if (name == preferName) preferred = id
+            }
+        }
+        return preferred ?: first
+    }
+
+    /**
+     * Get the daily file layout format from SharedPreferences, or the
+     * default (`dailies/%Y%m%d.md`).
+     */
+    fun getDailyPathFormat(context: Context): String {
+        val widgetPrefs = HomeWidgetPlugin.getData(context)
+        val widgetFormat = widgetPrefs.getString(DAILY_PATH_FORMAT_KEY, null)
+        if (!widgetFormat.isNullOrEmpty()) {
+            return widgetFormat
+        }
+        val flutterPrefs = context.getSharedPreferences(
+            FLUTTER_SHARED_PREFERENCES_NAME,
+            Context.MODE_PRIVATE
+        )
+        val format = flutterPrefs.getString(
+            "${FLUTTER_KEY_PREFIX}$DAILY_PATH_FORMAT_KEY", null
+        ) ?: flutterPrefs.getString(DAILY_PATH_FORMAT_KEY, null)
+        if (!format.isNullOrEmpty()) return format
+
+        val prefs = context.getSharedPreferences(
+            SHARED_PREFERENCES_NAME,
+            Context.MODE_PRIVATE
+        )
+        return prefs.getString(DAILY_PATH_FORMAT_KEY, null)
+            ?: DEFAULT_DAILY_PATH_FORMAT
+    }
+
+    /**
+     * Replace the date tokens (`%Y`, `%m`, `%d`) of a daily file layout format
+     * with the components of a `yyyyMMdd` [date]. A `*` wildcard is kept.
+     */
+    fun applyDailyPathFormat(format: String, date: String): String {
+        if (date.length != 8) return format
+        val year = date.substring(0, 4)
+        val month = date.substring(4, 6)
+        val day = date.substring(6, 8)
+        return format
+            .replace("%Y", year)
+            .replace("%m", month)
+            .replace("%d", day)
     }
 
     /**
@@ -197,10 +287,28 @@ object FileHelper {
     }
 
     /**
-     * Construct path to daily file
+     * Construct path to today's note file from the configured daily file
+     * layout. A `*` layout resolves the actual `.md` file in the day
+     * directory (preferring `daily.md`); otherwise the literal format path
+     * is used.
      */
-    fun getDailyFilePath(storagePath: String, date: String): File {
-        return File(storagePath, "$DAILIES_DIR_NAME/$date.md")
+    fun getDailyFilePath(context: Context, storagePath: String, date: String): File {
+        val format = getDailyPathFormat(context)
+        val relPath = applyDailyPathFormat(format, date)
+        val literal = File(storagePath, relPath)
+
+        if (format.contains("*")) {
+            val dir = File(storagePath, relPath.substringBeforeLast('/'))
+            val files = dir.listFiles { f ->
+                f.isFile && f.name.endsWith(".md") && !f.name.contains(".sync-conflict-")
+            } ?: emptyArray()
+            if (files.isNotEmpty()) {
+                val daily = files.firstOrNull { it.name == "daily.md" }
+                    ?: files.sortedBy { it.name }.first()
+                return daily
+            }
+        }
+        return literal
     }
 
     /**
