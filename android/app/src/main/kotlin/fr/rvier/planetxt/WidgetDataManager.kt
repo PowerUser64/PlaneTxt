@@ -54,7 +54,7 @@ object WidgetDataManager {
                     FileHelper.showWidgetError(context, message, triggerWidgetUpdate)
                     return
                 }
-                val dailyFilePath = FileHelper.getDailyFilePath(storagePath, todayDate)
+                val dailyFilePath = FileHelper.getDailyFilePath(context, storagePath, todayDate)
                 Log.d(TAG, "Daily file path: ${dailyFilePath.absolutePath}")
                 content = if (FileHelper.fileExists(dailyFilePath)) {
                     FileHelper.readFile(dailyFilePath)

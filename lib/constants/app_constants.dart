@@ -30,6 +30,9 @@ class AppConstants {
   static const String archivesDirName = 'archives';
   static const String notesDirName = 'notes';
 
+  // Name given to a day's file: see DailyFileNaming for the placeholders.
+  static const String defaultDailyFileNameTemplate = 'YYYYMMDD';
+
   // Default template
   static const String defaultDailyTemplate = '''# 📅 Events
 
@@ -54,6 +57,8 @@ class AppConstants {
   // Human-readable name of that folder, for display.
   static const String storageTreeNameKey = 'storage_tree_name';
   static const String templateKey = 'daily_template';
+  // Template naming the days' files (see DailyFileNaming).
+  static const String dailyFileNameTemplateKey = 'daily_file_name_template';
   // Set once the first-run "where should your files live?" prompt was shown.
   static const String storageChoiceOfferedKey = 'storage_choice_offered';
   // Minutes before an event its reminder fires; negative: no reminders.

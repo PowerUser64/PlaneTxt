@@ -18,8 +18,11 @@ object FileHelper {
     private const val STORAGE_TREE_URI_KEY = "storage_tree_uri"
     private const val ORG_DIR_NAME = "Org"
     private const val DAILIES_DIR_NAME = "dailies"
+    private const val DAILY_FILE_NAME_TEMPLATE_KEY = "daily_file_name_template"
+    private const val DEFAULT_DAILY_FILE_NAME_TEMPLATE = "YYYYMMDD"
     private const val WIDGET_DAILY_CONTENT_KEY = "widget_daily_content"
     private const val WIDGET_DATE_KEY = "widget_date"
+    private val PLACEHOLDER = Regex("YYYY|MM|DD")
 
     /**
      * SAF document-tree URI of the user-selected storage folder, if any.
@@ -50,7 +53,48 @@ object FileHelper {
     }
 
     /**
-     * Read `dailies/<date>.md` from a SAF tree. Returns null when the file
+     * Template naming the days' files, as configured in the app (see the
+     * Dart DailyFileNaming). Falls back to the default naming when it is
+     * unset or unusable.
+     */
+    private fun getDailyFileNameTemplate(context: Context): String {
+        val widgetPrefs = HomeWidgetPlugin.getData(context)
+        var template = widgetPrefs.getString(DAILY_FILE_NAME_TEMPLATE_KEY, null)
+        if (template.isNullOrEmpty()) {
+            val flutterPrefs = context.getSharedPreferences(
+                FLUTTER_SHARED_PREFERENCES_NAME,
+                Context.MODE_PRIVATE
+            )
+            template = flutterPrefs.getString(
+                "$FLUTTER_KEY_PREFIX$DAILY_FILE_NAME_TEMPLATE_KEY", null
+            ) ?: flutterPrefs.getString(DAILY_FILE_NAME_TEMPLATE_KEY, null)
+        }
+        if (template.isNullOrEmpty()) return DEFAULT_DAILY_FILE_NAME_TEMPLATE
+
+        val trimmed = template.trim().removeSuffix(".md")
+        val found = PLACEHOLDER.findAll(trimmed).map { it.value }.toList()
+        val usable = !trimmed.contains('/') && !trimmed.contains('\\') &&
+            listOf("YYYY", "MM", "DD").all { p -> found.count { it == p } == 1 }
+        if (!usable) {
+            Log.w(TAG, "Unusable daily file name template: $template")
+            return DEFAULT_DAILY_FILE_NAME_TEMPLATE
+        }
+        return trimmed
+    }
+
+    /**
+     * Name of the file holding the day [date] (`yyyyMMdd`).
+     */
+    fun dailyFileName(context: Context, date: String): String {
+        val name = getDailyFileNameTemplate(context)
+            .replace("YYYY", date.substring(0, 4))
+            .replace("MM", date.substring(4, 6))
+            .replace("DD", date.substring(6, 8))
+        return "$name.md"
+    }
+
+    /**
+     * Read the day's file from a SAF tree. Returns null when the file
      * doesn't exist or can't be read.
      */
     fun readDailyContentFromTree(context: Context, treeUri: Uri, date: String): String? {
@@ -60,8 +104,9 @@ object FileHelper {
                 DocumentsContract.getTreeDocumentId(treeUri),
                 DAILIES_DIR_NAME
             ) ?: return null
-            val fileId = findChildDocumentId(context, treeUri, dailiesId, "$date.md")
-                ?: return null
+            val fileId = findChildDocumentId(
+                context, treeUri, dailiesId, dailyFileName(context, date)
+            ) ?: return null
             val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, fileId)
             context.contentResolver.openInputStream(docUri)?.use { input ->
                 BufferedReader(InputStreamReader(input)).readText()
@@ -199,8 +244,8 @@ object FileHelper {
     /**
      * Construct path to daily file
      */
-    fun getDailyFilePath(storagePath: String, date: String): File {
-        return File(storagePath, "$DAILIES_DIR_NAME/$date.md")
+    fun getDailyFilePath(context: Context, storagePath: String, date: String): File {
+        return File(storagePath, "$DAILIES_DIR_NAME/${dailyFileName(context, date)}")
     }
 
     /**

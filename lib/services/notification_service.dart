@@ -10,6 +10,7 @@ import 'package:planetxt/constants/app_constants.dart';
 import 'package:planetxt/services/in_app_reminder_scheduler.dart';
 import 'package:planetxt/services/shared_prefs_service.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/daily_file_naming.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
 import 'package:timezone/data/latest.dart' as tz;
@@ -513,11 +514,8 @@ class NotificationService {
           final entries = await store.list(StorageService.dailiesDirName);
           final dateByPath = <String, String>{};
           for (final entry in entries) {
-            final dateMatch =
-                RegExp(r'(\d{8})\.md$').firstMatch(entry.relPath);
-            if (dateMatch != null) {
-              dateByPath[entry.relPath] = dateMatch.group(1)!;
-            }
+            final date = DailyFileNaming.current.dateOf(entry.relPath);
+            if (date != null) dateByPath[entry.relPath] = date;
           }
           final contents = await store.readAll(dateByPath.keys.toList());
           dateByPath.forEach((relPath, date) {

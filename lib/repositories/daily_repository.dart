@@ -2,11 +2,10 @@ import 'package:planetxt/models/daily_file.dart';
 import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/repositories/base_repository.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/daily_file_naming.dart';
 import 'package:planetxt/utils/logger.dart';
 
 class DailyRepository extends BaseRepository<DailyFile> {
-  static final _datePattern = RegExp(r'(\d{8})\.md$');
-
   DailyRepository(super.storageService);
 
   @override
@@ -19,20 +18,25 @@ class DailyRepository extends BaseRepository<DailyFile> {
   String get tag => '📅 DailyRepository';
 
   @override
-  String? matchEntry(StoreEntry entry) {
-    final fileName = entry.relPath.split('/').last;
-    final match = _datePattern.firstMatch(fileName);
-    return match?.group(1);
+  String? matchEntry(StoreEntry entry) =>
+      DailyFileNaming.current.dateOf(entry.relPath);
+
+  @override
+  void onScanned(List<StoreEntry> entries) {
+    final paths = <String, String>{};
+    for (final entry in entries) {
+      final date = DailyFileNaming.current.dateOf(entry.relPath);
+      if (date != null) paths[date] = entry.relPath;
+    }
+    _listedPaths = paths;
   }
 
   @override
   DailyFile? itemFromContent(StoreEntry entry, String content) {
-    final fileName = entry.relPath.split('/').last;
-    final dateMatch = _datePattern.firstMatch(fileName);
-    if (dateMatch == null) return null;
+    final date = DailyFileNaming.current.dateOf(entry.relPath);
+    if (date == null) return null;
 
-    return DailyFile(
-        path: entry.relPath, date: dateMatch.group(1)!, content: content);
+    return DailyFile(path: entry.relPath, date: date, content: content);
   }
 
   @override
@@ -67,6 +71,41 @@ class DailyRepository extends BaseRepository<DailyFile> {
   /// Get daily file by date from cache.
   DailyFile? getByDate(String date) => cache[date];
 
+  /// Path of each day's file, as the last scan listed it. Before the
+  /// first scan the cache is empty, and a day whose file follows an older
+  /// naming would go unnoticed - then be written a second time under the
+  /// current one.
+  Map<String, String>? _listedPaths;
+
+  /// Store path of the day [date]'s file: the one it already has on disk,
+  /// else the name the configured naming gives it. A day written before
+  /// the template changed keeps its file rather than gaining a second one.
+  Future<String> pathFor(String date) async {
+    final cached = cache[date]?.path;
+    if (cached != null) return cached;
+
+    final templatePath = StorageService.dailyPath(date);
+    final store = storageService.store;
+    if (store == null) return templatePath;
+    if (await store.exists(templatePath)) return templatePath;
+
+    // The day may hold a file under a name the current template doesn't
+    // give - deleted since the scan listed it, though.
+    final listed = (await _scannedPaths(store))?[date];
+    if (listed != null && await store.exists(listed)) return listed;
+    return templatePath;
+  }
+
+  Future<Map<String, String>?> _scannedPaths(FileStore store) async {
+    if (_listedPaths != null) return _listedPaths;
+    try {
+      onScanned(await store.list(scanDir));
+    } catch (e) {
+      Log.e('❌ DailyRepository: Cannot list $scanDir', error: e);
+    }
+    return _listedPaths;
+  }
+
   /// Load the daily file for [date], revalidating the cache against the
   /// file's mtime. The plaintext files can be edited by external tools at
   /// any time - returning a stale cache entry here would make the next save
@@ -78,7 +117,7 @@ class DailyRepository extends BaseRepository<DailyFile> {
       return cache[date];
     }
 
-    final relPath = StorageService.dailyPath(date);
+    final relPath = await pathFor(date);
     final currentMod = await store.modified(relPath);
 
     if (currentMod == null && !await store.exists(relPath)) {
@@ -139,7 +178,7 @@ class DailyRepository extends BaseRepository<DailyFile> {
     }
 
     final dailyFile = DailyFile(
-      path: StorageService.dailyPath(date),
+      path: await pathFor(date),
       date: date,
       content: content,
     );

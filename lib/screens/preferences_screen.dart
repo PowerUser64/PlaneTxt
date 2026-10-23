@@ -2,12 +2,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:planetxt/constants/app_constants.dart';
 import 'package:planetxt/providers/directory_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/screens/preferences/debug_section.dart';
 import 'package:planetxt/screens/preferences/header_patterns_section.dart';
 import 'package:planetxt/screens/preferences/reminders_section.dart';
 import 'package:planetxt/screens/preferences/storage_section.dart';
+import 'package:planetxt/utils/daily_file_naming.dart';
 import 'package:planetxt/widgets/theme_selector.dart';
 import 'package:provider/provider.dart';
 
@@ -125,7 +127,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
 
           const Divider(),
 
-          _buildSection(context, title: 'Daily Template', children: [
+          _buildSection(context, title: 'Daily Files', children: [
             Consumer<ThemeProvider>(
               builder: (context, themeProvider, child) {
                 return ListTile(
@@ -136,6 +138,17 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                       : 'Template configured'),
                   trailing: const Icon(Icons.arrow_forward_ios),
                   onTap: () => _showTemplateDialog(context, themeProvider),
+                );
+              },
+            ),
+            Consumer<ThemeProvider>(
+              builder: (context, themeProvider, child) {
+                return ListTile(
+                  leading: const Icon(Icons.drive_file_rename_outline),
+                  title: const Text('Daily File Name'),
+                  subtitle: Text(DailyFileNaming.current.fileName(_today())),
+                  trailing: const Icon(Icons.arrow_forward_ios),
+                  onTap: () => _showFileNameDialog(context, themeProvider),
                 );
               },
             ),
@@ -379,6 +392,13 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
     );
   }
 
+  void _showFileNameDialog(BuildContext context, ThemeProvider themeProvider) {
+    showDialog(
+      context: context,
+      builder: (context) => _DailyFileNameDialog(themeProvider: themeProvider),
+    );
+  }
+
   Future<void> _showAboutDialog(BuildContext context) async {
     final packageInfo = await PackageInfo.fromPlatform();
     final version = packageInfo.version;
@@ -400,6 +420,96 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
         const SizedBox(height: 16),
         const Text(
           'By using a more structured yet flexible approach with dailies Markdown files instead of a calendar.txt and todo.txt, PlaneTxt provides a more efficient, scalable, and user-friendly experience.',
+        ),
+      ],
+    );
+  }
+}
+
+/// Today as `yyyyMMdd`, to show the name a template would give it.
+String _today() {
+  final day = DateTime.now();
+  return '${day.year.toString().padLeft(4, '0')}'
+      '${day.month.toString().padLeft(2, '0')}'
+      '${day.day.toString().padLeft(2, '0')}';
+}
+
+/// Edits the template naming the days' files, with the name it gives today
+/// and the reason an invalid template is refused.
+class _DailyFileNameDialog extends StatefulWidget {
+  final ThemeProvider themeProvider;
+
+  const _DailyFileNameDialog({required this.themeProvider});
+
+  @override
+  State<_DailyFileNameDialog> createState() => _DailyFileNameDialogState();
+}
+
+class _DailyFileNameDialogState extends State<_DailyFileNameDialog> {
+  late final TextEditingController _controller = TextEditingController(
+      text: widget.themeProvider.dailyFileNameTemplate);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final template = _controller.text;
+    final error = DailyFileNaming.validate(template);
+    final preview = DailyFileNaming.nameFrom(template, _today());
+
+    return AlertDialog(
+      title: const Text('Daily File Name'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Name the file of each day. Use YYYY for the year, MM for the '
+              'month and DD for the day; anything else is kept as written.',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _controller,
+              autocorrect: false,
+              decoration: InputDecoration(
+                labelText: 'Name Template',
+                hintText: AppConstants.defaultDailyFileNameTemplate,
+                border: const OutlineInputBorder(),
+                errorText: error,
+                helperText: preview == null ? null : 'Today: $preview',
+              ),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'The days that already have a file keep it: only the days '
+              'written from now on take the new name.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: error != null
+              ? null
+              : () {
+                  widget.themeProvider.setDailyFileNameTemplate(template);
+                  Navigator.of(context).pop();
+                },
+          child: const Text('Save'),
         ),
       ],
     );

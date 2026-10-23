@@ -48,6 +48,10 @@ abstract class BaseRepository<T> {
   /// Return a unique cache key for the given [entry], or `null` to skip it.
   String? matchEntry(StoreEntry entry);
 
+  /// Called with everything a scan listed, before it is matched: lets a
+  /// subclass keep its own index of the files on disk.
+  void onScanned(List<StoreEntry> entries) {}
+
   /// Build a model from a listed entry and its file content. Return `null`
   /// to skip the file.
   T? itemFromContent(StoreEntry entry, String content);
@@ -97,6 +101,7 @@ abstract class BaseRepository<T> {
 
     final entries = await store.list(scanDir, recursive: recursive);
     _scanConflicts(entries);
+    onScanned(entries);
 
     if (forceReload) {
       cache.clear();
@@ -158,6 +163,7 @@ abstract class BaseRepository<T> {
 
     final entries = await store.list(scanDir, recursive: recursive);
     _scanConflicts(entries);
+    onScanned(entries);
     final modifiedEntries = <StoreEntry>[];
     final seenKeys = <String>{};
 

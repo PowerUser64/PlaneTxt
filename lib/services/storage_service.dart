@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:planetxt/services/file_store/file_store.dart';
 import 'package:planetxt/services/file_store/io_file_store.dart';
 import 'package:planetxt/services/file_store/saf_file_store.dart';
+import 'package:planetxt/utils/daily_file_naming.dart';
 import 'package:planetxt/utils/logger.dart';
 
 export 'package:planetxt/services/file_store/file_store.dart'
@@ -44,8 +45,11 @@ class StorageService {
   String get storageDescription =>
       _store?.rootDescription ?? 'Not initialized';
 
-  /// Relative daily file path for a YYYYMMDD [date].
-  static String dailyPath(String date) => '$dailiesDirName/$date.md';
+  /// Relative path the configured naming gives the day [date] (`yyyyMMdd`).
+  /// A day whose file is already on disk under another name keeps it: ask
+  /// `DailyRepository.pathFor` rather than this when writing.
+  static String dailyPath(String date) =>
+      '$dailiesDirName/${DailyFileNaming.current.fileName(date)}';
 
   /// Relative note path for a path relative to the notes directory.
   static String notePath(String relativeToNotes) =>

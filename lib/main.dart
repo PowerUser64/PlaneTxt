@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:planetxt/constants/app_constants.dart';
 import 'package:planetxt/providers/directory_provider.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
@@ -6,6 +7,7 @@ import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/screens/main_screen.dart';
 import 'package:planetxt/services/shared_prefs_service.dart';
 import 'package:planetxt/services/widget_service.dart';
+import 'package:planetxt/utils/daily_file_naming.dart';
 import 'package:provider/provider.dart';
 
 void main() async {
@@ -13,6 +15,10 @@ void main() async {
 
   // Initialize shared preferences (must be first)
   await SharedPrefsService.initialize();
+
+  // The days' file names, before anything reads or writes one.
+  DailyFileNaming.useTemplate(SharedPrefsService.instance
+      .getString(AppConstants.dailyFileNameTemplateKey));
 
   // Initialize widget service
   await WidgetService.initialize();

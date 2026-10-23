@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:planetxt/constants/app_constants.dart';
 import 'package:planetxt/services/widget_service.dart';
 import 'package:planetxt/themes/app_themes.dart';
+import 'package:planetxt/utils/daily_file_naming.dart';
 import 'package:planetxt/utils/logger.dart';
 
 class ThemeProvider extends ChangeNotifier {
@@ -18,6 +19,7 @@ class ThemeProvider extends ChangeNotifier {
   String? _storageTreeUri;
   String? _storageTreeName;
   String _dailyTemplate = '';
+  String _dailyFileNameTemplate = AppConstants.defaultDailyFileNameTemplate;
   bool _widgetDarkTheme = false;
   double _widgetTransparency =
       1.0; // 1.0 = fully opaque, 0.0 = fully transparent
@@ -45,6 +47,9 @@ class ThemeProvider extends ChangeNotifier {
   String? get storageTreeUri => _storageTreeUri;
   String? get storageTreeName => _storageTreeName;
   String get dailyTemplate => _dailyTemplate;
+
+  /// Template naming the days' files, e.g. `YYYY-MM-DD-Agenda`.
+  String get dailyFileNameTemplate => _dailyFileNameTemplate;
   bool get widgetDarkTheme => _widgetDarkTheme;
   double get widgetTransparency => _widgetTransparency;
   double get widgetTextSize => _widgetTextSize;
@@ -72,6 +77,10 @@ class ThemeProvider extends ChangeNotifier {
     _storageTreeUri = prefs.getString(AppConstants.storageTreeUriKey);
     _storageTreeName = prefs.getString(AppConstants.storageTreeNameKey);
     _dailyTemplate = prefs.getString(_templateKey) ?? _getDefaultTemplate();
+    _dailyFileNameTemplate =
+        prefs.getString(AppConstants.dailyFileNameTemplateKey) ??
+            AppConstants.defaultDailyFileNameTemplate;
+    DailyFileNaming.useTemplate(_dailyFileNameTemplate);
     _widgetDarkTheme = prefs.getBool(AppConstants.widgetThemeKey) ??
         prefs.getBool(_legacyWidgetThemeKey) ??
         false;
@@ -114,6 +123,10 @@ class ThemeProvider extends ChangeNotifier {
       await HomeWidget.saveWidgetData<String>(
         AppConstants.storageTreeUriKey,
         _storageTreeUri ?? '',
+      );
+      await HomeWidget.saveWidgetData<String>(
+        AppConstants.dailyFileNameTemplateKey,
+        _dailyFileNameTemplate,
       );
     } catch (e, stackTrace) {
       Log.w('⚠️ ThemeProvider: Failed to sync widget storage config on load',
@@ -207,6 +220,28 @@ class ThemeProvider extends ChangeNotifier {
     _dailyTemplate = template;
     final prefs = SharedPrefsService.instance;
     await prefs.setString(_templateKey, template);
+    notifyListeners();
+  }
+
+  /// Name the days' files after [template] (see [DailyFileNaming]). The
+  /// days that already have a file keep it; only the days written from now
+  /// on take the new name.
+  Future<void> setDailyFileNameTemplate(String template) async {
+    final normalized = DailyFileNaming.normalize(template);
+    _dailyFileNameTemplate = normalized;
+    DailyFileNaming.useTemplate(normalized);
+    await SharedPrefsService.instance
+        .setString(AppConstants.dailyFileNameTemplateKey, normalized);
+    try {
+      // The Android widget builds today's file name itself.
+      await HomeWidget.saveWidgetData<String>(
+        AppConstants.dailyFileNameTemplateKey,
+        normalized,
+      );
+    } catch (e, stackTrace) {
+      Log.w('⚠️ ThemeProvider: Failed to sync the widget file naming',
+          error: e, stackTrace: stackTrace);
+    }
     notifyListeners();
   }
 

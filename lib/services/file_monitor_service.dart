@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:planetxt/models/daily_file.dart';
 import 'package:planetxt/services/notification_service.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/daily_file_naming.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
 
@@ -21,8 +22,6 @@ class FileMonitorService {
   // exotic filesystems).
   static const Duration _pollingInterval = Duration(seconds: 30);
   static const Duration _watchDebounce = Duration(seconds: 2);
-
-  static final _datePattern = RegExp(r'(\d{8})\.md$');
 
   // Track dates recently scheduled by DailyFileProvider to avoid
   // the FileMonitorService cancelling those notifications immediately.
@@ -137,10 +136,9 @@ class FileMonitorService {
       final today = _todayString();
 
       for (final entry in entries) {
-        final dateMatch = _datePattern.firstMatch(entry.relPath);
-        if (dateMatch == null) continue;
+        final date = DailyFileNaming.current.dateOf(entry.relPath);
+        if (date == null) continue;
 
-        final date = dateMatch.group(1)!;
         existingDates.add(date);
         final lastModified = entry.modified;
         if (lastModified == null) continue;
@@ -228,10 +226,9 @@ class FileMonitorService {
       final today = _todayString();
       int scheduledCount = 0;
       for (final entry in entries) {
-        final dateMatch = _datePattern.firstMatch(entry.relPath);
-        if (dateMatch == null) continue;
+        final date = DailyFileNaming.current.dateOf(entry.relPath);
+        if (date == null) continue;
 
-        final date = dateMatch.group(1)!;
         if (date.compareTo(today) < 0) continue;
         final String content;
         try {
@@ -276,9 +273,9 @@ class FileMonitorService {
       try {
         final entries = await store.list(StorageService.dailiesDirName);
         for (final entry in entries) {
-          final dateMatch = _datePattern.firstMatch(entry.relPath);
-          if (dateMatch == null || entry.modified == null) continue;
-          _lastModified[dateMatch.group(1)!] = entry.modified!;
+          final date = DailyFileNaming.current.dateOf(entry.relPath);
+          if (date == null || entry.modified == null) continue;
+          _lastModified[date] = entry.modified!;
         }
       } catch (_) {}
 

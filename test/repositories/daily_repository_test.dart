@@ -6,6 +6,7 @@ import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/repositories/daily_repository.dart';
 import 'package:planetxt/services/file_store/io_file_store.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/daily_file_naming.dart';
 import 'package:planetxt/utils/exceptions.dart';
 
 void main() {
@@ -25,6 +26,7 @@ void main() {
   });
 
   tearDown(() {
+    DailyFileNaming.useTemplate(DailyFileNaming.defaultTemplate);
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
@@ -133,6 +135,54 @@ void main() {
         throwsA(isA<FileConflictException>()
             .having((e) => e.diskContent, 'diskContent', isNull)),
       );
+    });
+  });
+
+  group('DailyRepository with a configured file naming', () {
+    File named(String name) => File('${tempDir.path}/Org/dailies/$name');
+
+    test('a new day takes the configured name', () async {
+      DailyFileNaming.useTemplate('YYYY-MM-DD-Agenda');
+
+      final created = await repository.create('20261011', '- [ ] new day');
+
+      expect(created.path, 'dailies/2026-10-11-Agenda.md');
+      expect(named('2026-10-11-Agenda.md').readAsStringSync(),
+          '- [ ] new day');
+    });
+
+    test('a day written before the change keeps its file', () async {
+      daily('20261011').writeAsStringSync('- [ ] from before');
+      DailyFileNaming.useTemplate('YYYY-MM-DD-Agenda');
+
+      // Found by its old name, and written back to it: no second file.
+      final loaded = await repository.loadByDate('20261011');
+      expect(loaded?.path, 'dailies/20261011.md');
+
+      await repository.create('20261011', '- [x] from before');
+      expect(daily('20261011').readAsStringSync(), '- [x] from before');
+      expect(named('2026-10-11-Agenda.md').existsSync(), isFalse);
+    });
+
+    test('a day the cache has never seen keeps its file too', () async {
+      daily('20261011').writeAsStringSync('- [ ] from before');
+      DailyFileNaming.useTemplate('YYYY-MM-DD-Agenda');
+
+      // No load first: the path is resolved from the directory itself.
+      await repository.create('20261011', '- [x] from before');
+
+      expect(daily('20261011').readAsStringSync(), '- [x] from before');
+      expect(named('2026-10-11-Agenda.md').existsSync(), isFalse);
+    });
+
+    test('a scan reads both namings', () async {
+      daily('20261010').writeAsStringSync('- [ ] old name');
+      DailyFileNaming.useTemplate('YYYY-MM-DD-Agenda');
+      named('2026-10-11-Agenda.md').writeAsStringSync('- [ ] new name');
+
+      final files = await repository.loadAll();
+
+      expect(files.map((f) => f.date), ['20261011', '20261010']);
     });
   });
 
