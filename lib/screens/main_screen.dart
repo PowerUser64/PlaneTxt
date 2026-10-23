@@ -8,6 +8,7 @@ import 'package:planetxt/providers/directory_provider.dart';
 import 'package:planetxt/providers/note_file_provider.dart';
 import 'package:planetxt/providers/theme_provider.dart';
 import 'package:planetxt/screens/calendar_view.dart';
+import 'package:planetxt/screens/conflict_screen.dart';
 import 'package:planetxt/screens/notes_view.dart';
 import 'package:planetxt/screens/preferences/storage_section.dart';
 import 'package:planetxt/screens/preferences_screen.dart';
@@ -342,49 +343,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           onPressed: () => setState(() => _dismissedConflicts = conflicts),
           child: const Text('Dismiss'),
         ),
-        TextButton(
-          onPressed: () => _showConflicts(context, conflicts),
-          child: const Text('Details'),
+        FilledButton(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const ConflictScreen()),
+          ),
+          child: const Text('Resolve'),
         ),
       ],
-    );
-  }
-
-  void _showConflicts(BuildContext context, Set<String> conflicts) {
-    final sorted = conflicts.toList()..sort();
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Conflicting versions'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              const Text(
-                  'These files changed in two places at once, so a sync app '
-                  '(or PlaneTxt) kept the second version as a copy. Compare '
-                  'each copy with its original, keep what you need, then '
-                  'delete the copy. Copies under notes/ open from the Notes '
-                  'tab.'),
-              const SizedBox(height: 12),
-              for (final path in sorted)
-                ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.description_outlined),
-                  title: Text(path),
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
     );
   }
 

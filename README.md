@@ -33,6 +33,7 @@ PlaneTxt (formerly Planova) is the successor of MOrg: it replaces the calendar.t
 - **Themes**: system, light or dark mode, with Gruvbox, Nord, Adwaita, Monokai and Everforest color themes.
 - **Your storage, your rules**: keep the default app folder or pick any folder through the system picker. No storage permission is needed.
 - **External edits are safe**: files changed by another tool are picked up, writes are atomic, and nothing is overwritten silently.
+- **Sync conflicts**: when a file changed on two devices at once, PlaneTxt shows both versions line by line and keeps the one you pick, or both.
 
 ## Omarchy shell plugin
 

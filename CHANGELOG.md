@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- The conflict banner now resolves conflicts: both versions of a file changed in two places at once are compared line by line, and the current one, the copy, or both are kept ([#3](https://github.com/brvier/PlaneTxt/issues/3))
+
 ## [2.2.0] - 2026-10-23
 
 ### Added
