@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.2.0] - 2026-10-23
 
 ### Added
 - Settings: the name given to each day's file, from a template such as `YYYY-MM-DD-Agenda`. The days that already have a file keep it ([#1](https://github.com/brvier/PlaneTxt/issues/1))

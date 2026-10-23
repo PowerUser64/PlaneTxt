@@ -1,0 +1,2 @@
+- Settings: name each day's file from a template, such as YYYY-MM-DD-Agenda. The days that already have a file keep it
+- Events show their Markdown: bold, italic, code, lists, and links that open in your browser
