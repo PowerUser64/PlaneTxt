@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:planetxt/models/calendar_event.dart';
 import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
+import 'package:planetxt/widgets/inline_markdown.dart';
 
 class DailyContentView extends StatelessWidget {
   final DailyFileProvider dailyFileProvider;
@@ -123,8 +124,8 @@ class _EventRow extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        event.displayTitle,
+                      child: InlineMarkdown(
+                        data: event.displayTitle,
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ),
@@ -132,8 +133,8 @@ class _EventRow extends StatelessWidget {
                 ),
                 if (event.description.isNotEmpty) ...[
                   const SizedBox(height: 2),
-                  Text(
-                    event.description,
+                  InlineMarkdown(
+                    data: event.description,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color:
                               Theme.of(context).colorScheme.onSurfaceVariant,

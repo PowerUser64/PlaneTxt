@@ -6,6 +6,7 @@ import 'package:planetxt/providers/daily_file_provider.dart';
 import 'package:planetxt/services/file_store/io_file_store.dart';
 import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/widgets/daily_content_view.dart';
+import 'package:planetxt/widgets/inline_markdown.dart';
 
 void main() {
   late Directory tempDir;
@@ -111,4 +112,43 @@ void main() {
     expect(find.text('ran 5 km'), findsOneWidget);
     expect(find.text('idea'), findsOneWidget);
   });
+
+  testWidgets('renders the markdown of an event and of its description',
+      (tester) async {
+    File('${tempDir.path}/Org/dailies/$date.md').writeAsStringSync(
+        '# Events\n- @09:00 **Standup** with [the team](https://example.org)\n'
+        '  read the *agenda* first\n');
+    await pumpDay(tester);
+
+    final markdown = find.byType(InlineMarkdown);
+    expect(markdown, findsNWidgets(2)); // title, description
+
+    TextSpan spanOf(int index) => tester
+        .widget<Text>(find.descendant(
+            of: markdown.at(index), matching: find.byType(Text)))
+        .textSpan! as TextSpan;
+
+    final title = spanOf(0);
+    // The syntax is gone from the text; the words are all still there.
+    expect(title.toPlainText(), 'Standup with the team');
+    expect(_styleOf(title, 'Standup')?.fontWeight, FontWeight.bold);
+    expect(_styleOf(title, 'the team')?.decoration, TextDecoration.underline);
+
+    final description = spanOf(1);
+    expect(description.toPlainText(), 'read the agenda first');
+    expect(_styleOf(description, 'agenda')?.fontStyle, FontStyle.italic);
+  });
+}
+
+/// Style the span holding exactly [text] is drawn with, if there is one.
+TextStyle? _styleOf(InlineSpan span, String text) {
+  TextStyle? found;
+  span.visitChildren((child) {
+    if (child is TextSpan && child.text == text) {
+      found = child.style;
+      return false;
+    }
+    return true;
+  });
+  return found;
 }

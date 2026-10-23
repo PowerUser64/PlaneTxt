@@ -4,6 +4,7 @@
 
 ### Added
 - Settings: the name given to each day's file, from a template such as `YYYY-MM-DD-Agenda`. The days that already have a file keep it ([#1](https://github.com/brvier/PlaneTxt/issues/1))
+- Events show their Markdown rendered - bold, italic, code, lists - and a link in an event or its description opens in the browser ([#2](https://github.com/brvier/PlaneTxt/issues/2))
 
 ## [2.1.0] - 2026-10-11
 
