@@ -95,6 +95,35 @@ void main() {
     expect(find.text('dailies/20261011.md'), findsOneWidget);
   });
 
+  testWidgets('colours each button like the version it keeps', (tester) async {
+    await pumpConflicts(tester);
+    await openTheConflict(tester);
+
+    final colors = Theme.of(tester.element(find.text('Keep both'))).colorScheme;
+    Color? backgroundOf(String label) => tester
+        .widget<FilledButton>(find.ancestor(
+            of: find.text(label), matching: find.byType(FilledButton)))
+        .style
+        ?.backgroundColor
+        ?.resolve(<WidgetState>{});
+
+    // The copy's lines are the + side of the diff, the current file's the -.
+    expect(backgroundOf('Keep the copy'), colors.tertiaryContainer);
+    expect(backgroundOf('Keep the current file'), colors.errorContainer);
+  });
+
+  testWidgets('leaves dropping an orphaned copy without a side colour',
+      (tester) async {
+    file('dailies/20261011.md').deleteSync();
+    await pumpConflicts(tester);
+    await openTheConflict(tester);
+
+    // Nothing is kept, so neither side's colour applies.
+    expect(find.widgetWithText(OutlinedButton, 'Drop the copy'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Keep the current file'),
+        findsNothing);
+  });
+
   testWidgets('keeping the copy writes it over the day and drops it',
       (tester) async {
     await pumpConflicts(tester);

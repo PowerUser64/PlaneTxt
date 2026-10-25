@@ -161,10 +161,13 @@ class _ConflictDetailScreenState extends State<ConflictDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Current file', style: textTheme.labelLarge),
+        // A copy whose file is gone has no second side to tell apart, so it
+        // gets no swatch either.
+        _buildSideLabel(context, 'Current file',
+            versions.currentIsGone ? null : _SideColors.current),
         Text(versions.originalPath, style: textTheme.bodySmall),
         const SizedBox(height: 8),
-        Text('Copy', style: textTheme.labelLarge),
+        _buildSideLabel(context, 'Copy', _SideColors.copy),
         Text(versions.copyPath, style: textTheme.bodySmall),
         const SizedBox(height: 12),
         Text(explanation, style: textTheme.bodyMedium),
@@ -172,25 +175,47 @@ class _ConflictDetailScreenState extends State<ConflictDetailScreen> {
     );
   }
 
+  /// One side's name, behind the colour its lines carry in the comparison.
+  Widget _buildSideLabel(BuildContext context, String label, _SideColors? side) {
+    final textTheme = Theme.of(context).textTheme;
+    if (side == null) return Text(label, style: textTheme.labelLarge);
+    return Row(
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: side.container(context),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: textTheme.labelLarge),
+      ],
+    );
+  }
+
   /// Both texts one after the other, for versions too far apart to line up.
   Widget _buildPlainVersions(BuildContext context, ConflictVersions versions) {
-    final textTheme = Theme.of(context).textTheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (versions.current != null) ...[
-          Text('Current file', style: textTheme.labelLarge),
+          _buildSideLabel(context, 'Current file', _SideColors.current),
           const SizedBox(height: 4),
           _MonospaceBlock(text: versions.current!),
           const SizedBox(height: 16),
         ],
-        Text('Copy', style: textTheme.labelLarge),
+        _buildSideLabel(context, 'Copy', _SideColors.copy),
         const SizedBox(height: 4),
         _MonospaceBlock(text: versions.copy),
       ],
     );
   }
 
+  /// Each button wears the colour of the version it keeps, the one its lines
+  /// already have in the comparison above. Keeping both keeps no single side,
+  /// and dropping a copy left without a file keeps nothing: those stay plain.
   Widget _buildActions(BuildContext context, ConflictVersions versions) {
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -205,18 +230,26 @@ class _ConflictDetailScreenState extends State<ConflictDetailScreen> {
                 : () => _resolve(versions, ConflictChoice.keepBoth),
             child: const Text('Keep both'),
           ),
-          OutlinedButton(
-            onPressed: _resolving
-                ? null
-                : () => _resolve(versions, ConflictChoice.keepCurrent),
-            child: Text(versions.currentIsGone
-                ? 'Drop the copy'
-                : 'Keep the current file'),
-          ),
+          if (versions.currentIsGone)
+            OutlinedButton(
+              onPressed: _resolving
+                  ? null
+                  : () => _resolve(versions, ConflictChoice.keepCurrent),
+              child: const Text('Drop the copy'),
+            )
+          else
+            FilledButton(
+              onPressed: _resolving
+                  ? null
+                  : () => _resolve(versions, ConflictChoice.keepCurrent),
+              style: _SideColors.current.buttonStyle(context),
+              child: const Text('Keep the current file'),
+            ),
           FilledButton(
             onPressed: _resolving
                 ? null
                 : () => _resolve(versions, ConflictChoice.keepCopy),
+            style: _SideColors.copy.buttonStyle(context),
             child: const Text('Keep the copy'),
           ),
         ],
@@ -257,6 +290,36 @@ class _ConflictDetailScreenState extends State<ConflictDetailScreen> {
   }
 }
 
+/// The colour each side of a conflict carries: on its lines in the diff, on
+/// the swatch beside its name, and on the button that keeps it.
+enum _SideColors {
+  current,
+  copy;
+
+  Color container(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return switch (this) {
+      _SideColors.current => colors.errorContainer,
+      _SideColors.copy => colors.tertiaryContainer,
+    };
+  }
+
+  Color onContainer(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return switch (this) {
+      _SideColors.current => colors.onErrorContainer,
+      _SideColors.copy => colors.onTertiaryContainer,
+    };
+  }
+
+  /// Left without a disabled colour on purpose: the theme's own greyed-out
+  /// filled button is what should show while a resolution is running.
+  ButtonStyle buttonStyle(BuildContext context) => FilledButton.styleFrom(
+        backgroundColor: container(context),
+        foregroundColor: onContainer(context),
+      );
+}
+
 /// A unified diff: the lines both versions share, those only the current
 /// file has, and those only the copy has.
 class _DiffView extends StatelessWidget {
@@ -274,8 +337,8 @@ class _DiffView extends StatelessWidget {
           Container(
             color: switch (line.kind) {
               DiffKind.same => null,
-              DiffKind.added => colors.tertiaryContainer,
-              DiffKind.removed => colors.errorContainer,
+              DiffKind.added => _SideColors.copy.container(context),
+              DiffKind.removed => _SideColors.current.container(context),
             },
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             child: Text(
@@ -289,8 +352,8 @@ class _DiffView extends StatelessWidget {
                 fontSize: 13,
                 color: switch (line.kind) {
                   DiffKind.same => colors.onSurfaceVariant,
-                  DiffKind.added => colors.onTertiaryContainer,
-                  DiffKind.removed => colors.onErrorContainer,
+                  DiffKind.added => _SideColors.copy.onContainer(context),
+                  DiffKind.removed => _SideColors.current.onContainer(context),
                 },
               ),
             ),
