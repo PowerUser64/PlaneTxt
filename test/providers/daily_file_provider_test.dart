@@ -126,6 +126,76 @@ void main() {
       expect(provider.getTasks('20261011')[1].isCompleted, isTrue);
     });
   });
+  group('DailyFileProvider merged notes', () {
+    File nested(String date, String name) {
+      final year = date.substring(0, 4);
+      final month = date.substring(4, 6);
+      final day = date.substring(6, 8);
+      final file = File('${tempDir.path}/Org/cal/$year/$month/$day/$name');
+      file.parent.createSync(recursive: true);
+      return file;
+    }
+
+    setUp(() {
+      StorageService.applyDailyPathFormat('cal/%Y/%m/%d', 'daily.md');
+      Directory('${tempDir.path}/Org/cal').createSync();
+    });
+
+    tearDown(() {
+      StorageService.applyDailyPathFormat('dailies', '%Y%m%d.md');
+    });
+
+    test('parses tasks, events and notes across every note of the day',
+        () async {
+      nested('20261011', 'daily.md').writeAsStringSync(
+          '# Todos\n- [ ] in daily\n\n# Notes\nprimary idea');
+      nested('20261011', 'reading_list.md').writeAsStringSync(
+          '- [ ] in note\nnote idea\n- @09:00 meeting');
+
+      await provider.ensureDailyFileLoaded('20261011');
+
+      expect(provider.getTasks('20261011').map((t) => t.text),
+          ['in daily', 'in note']);
+      expect(provider.getCalendarEvents('20261011').map((e) => e.title),
+          ['meeting']);
+      expect(provider.getNotes('20261011'), ['primary idea', 'note idea']);
+    });
+
+    test('an edit writes the primary file and keeps the other note',
+        () async {
+      nested('20261011', 'daily.md').writeAsStringSync('- [ ] mine');
+      nested('20261011', 'reading_list.md').writeAsStringSync('- [ ] list');
+
+      await provider.ensureDailyFileLoaded('20261011');
+      final task = provider.getTasks('20261011')[0];
+      await provider.setTodoDone('20261011', task, true);
+
+      expect(nested('20261011', 'daily.md').readAsStringSync(),
+          '- [x] mine');
+      expect(nested('20261011', 'reading_list.md').readAsStringSync(),
+          '- [ ] list');
+      // The merged view still parses both notes.
+      expect(provider.getTasks('20261011').map((t) => t.text),
+          ['mine', 'list']);
+    });
+
+    test('a todo from an additional note is checked in that note', () async {
+      nested('20261011', 'daily.md').writeAsStringSync('- [ ] mine');
+      nested('20261011', 'reading_list.md').writeAsStringSync('- [ ] list');
+
+      await provider.ensureDailyFileLoaded('20261011');
+      // The second task lives in reading_list.md.
+      final task = provider.getTasks('20261011')[1];
+      await provider.setTodoDone('20261011', task, true);
+
+      expect(nested('20261011', 'daily.md').readAsStringSync(), '- [ ] mine');
+      expect(nested('20261011', 'reading_list.md').readAsStringSync(),
+          '- [x] list');
+      expect(provider.getTasks('20261011').map((t) => t.text),
+          ['mine', 'list']);
+      expect(provider.getTasks('20261011')[1].isCompleted, isTrue);
+    });
+  });
   group('DailyFileProvider carry over', () {
     test('a copy leaves the todos in their day', () async {
       daily('20261009').writeAsStringSync('# Todos\n- [ ] a');

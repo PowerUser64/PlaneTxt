@@ -78,7 +78,10 @@ settings: a directory and a file name, both supporting date expansion (`%Y`
 year, `%m` month, `%d` day). The default is `dailies` + `%Y%m%d.md`; a
 Notes-style repository can use `cal/%Y/%m/%d` + `daily.md`. When the
 directory carries the date, every `.md` note inside that day's directory is
-indexed; new daily notes are named after the configured file name.
+indexed and merged, so clicking a date shows (and parses for todos, events,
+notes and reminders) all of that day's notes; new daily notes are named after
+the configured file name. Edits write to the day's primary file (preferring
+`daily.md`), and a todo from an additional note is checked back in that note.
 
 ## Install
 

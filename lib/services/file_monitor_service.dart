@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:planetxt/models/daily_file.dart';
 import 'package:planetxt/services/notification_service.dart';
 import 'package:planetxt/services/storage_service.dart';
+import 'package:planetxt/utils/conflict_files.dart';
 import 'package:planetxt/utils/daily_path_format.dart';
 import 'package:planetxt/utils/logger.dart';
 import 'package:planetxt/utils/markdown_parser.dart';
@@ -207,7 +208,7 @@ class FileMonitorService {
 
       Log.i('📁 FileMonitorService: File changed - $date');
 
-      final content = await _storageService.store?.read(relPath);
+      final content = await _readDayContent(date);
       if (content == null) {
         Log.w('📁 FileMonitorService: File no longer exists - $date');
         return;
@@ -217,6 +218,28 @@ class FileMonitorService {
     } catch (e) {
       Log.e('❌ FileMonitorService: Error handling file change', error: e);
     }
+  }
+
+  /// The merged content of a date's notes: in a nested layout, every `.md`
+  /// note in the day directory; in a flat layout, the canonical file. Null
+  /// when the date has no readable file.
+  Future<String?> _readDayContent(String date) async {
+    final store = _storageService.store;
+    if (store == null) return null;
+    final format = StorageService.dailyFormat;
+    if (format.directoryHasDate) {
+      final entries = await store.list(format.directoryForDate(date));
+      final texts = <String>[];
+      for (final entry in entries) {
+        if (isConflictCopy(entry.relPath)) continue;
+        final c = await store.read(entry.relPath);
+        if (c != null && c.isNotEmpty) texts.add(c);
+      }
+      return texts.isEmpty ? null : texts.join('\n');
+    }
+    final canonical = StorageService.dailyPath(date);
+    final content = await store.read(canonical);
+    return (content == null || content.isEmpty) ? null : content;
   }
 
   Future<void> _scheduleExistingEvents() async {
@@ -237,25 +260,27 @@ class FileMonitorService {
 
       final today = _todayString();
       int scheduledCount = 0;
+      // A day directory may hold several notes: merge them so a date's
+      // reminders cover every note, not just one file.
+      final byDate = <String, List<String>>{};
       for (final entry in entries) {
         final date = _format.dateFromPath(entry.relPath);
-        if (date == null) continue;
-
-        if (date.compareTo(today) < 0) continue;
-        final String content;
+        if (date == null || date.compareTo(today) < 0) continue;
         try {
-          content = await store.read(entry.relPath) ?? '';
+          final content = await store.read(entry.relPath) ?? '';
+          if (content.isNotEmpty) {
+            byDate.putIfAbsent(date, () => []).add(content);
+          }
         } catch (e) {
           // One unreadable file must not stop the other days' reminders.
           Log.e('❌ FileMonitorService: Cannot read ${entry.relPath}',
               error: e);
-          continue;
         }
-
-        if (content.isNotEmpty) {
-          await _scheduleNotificationsForDate(date, content);
-          scheduledCount++;
-        }
+      }
+      for (final entry in byDate.entries) {
+        if (entry.value.isEmpty) continue;
+        await _scheduleNotificationsForDate(entry.key, entry.value.join('\n'));
+        scheduledCount++;
       }
 
       Log.i(
@@ -277,7 +302,7 @@ class FileMonitorService {
       // Review existing notifications against the already-loaded content -
       // no filesystem reads needed.
       await _notificationService.reviewNotifications(
-          contentByDate: {for (final f in dailyFiles) f.date: f.content});
+          contentByDate: {for (final f in dailyFiles) f.date: f.mergedContent});
 
       // Seed known mtimes with a single directory listing (a per-file stat
       // is a full directory scan on SAF), so the change monitor won't treat
@@ -298,9 +323,10 @@ class FileMonitorService {
       int scheduledCount = 0;
       for (final dailyFile in dailyFiles) {
         if (dailyFile.date.compareTo(today) < 0) continue;
-        if (dailyFile.content.isEmpty) continue;
+        if (dailyFile.mergedContent.isEmpty) continue;
 
-        await _scheduleNotificationsForDate(dailyFile.date, dailyFile.content);
+        await _scheduleNotificationsForDate(
+            dailyFile.date, dailyFile.mergedContent);
         scheduledCount++;
       }
 

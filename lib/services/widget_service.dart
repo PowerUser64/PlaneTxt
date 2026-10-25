@@ -139,8 +139,8 @@ class WidgetService {
     if (dailyFile == null) return;
 
     try {
-      // Use raw markdown content for widget
-      final content = dailyFile.content;
+      // Use the merged day content so the widget shows every note of the day.
+      final content = dailyFile.mergedContent;
 
       // Format content for widget with daily view style
       final widgetContent = _formatDailyContentWithMarkdown(content);

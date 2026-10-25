@@ -232,14 +232,83 @@ void main() {
       expect(file?.content, '- [ ] hello');
     });
 
-    test('loadAll indexes every note in a day directory', () async {
+    test('loadAll merges every note in a day directory', () async {
       nested('20261011', 'daily.md').writeAsStringSync('- [ ] mine');
       nested('20261011', 'reading_list.md').writeAsStringSync('- [ ] list');
 
       final files = await repository.loadAll();
 
-      // Both map to the same date; one is picked as that day's file.
+      // Both map to the same date: one merged DailyFile covers every note.
       expect(files.map((f) => f.date).toSet(), {'20261011'});
+      final file = files.single;
+      expect(file.path, 'cal/2026/10/11/daily.md');
+      expect(file.content, '- [ ] mine');
+      expect(file.notes.single.path, 'cal/2026/10/11/reading_list.md');
+      expect(file.notes.single.content, '- [ ] list');
+      expect(file.mergedContent, '- [ ] mine\n- [ ] list');
+    });
+
+    test('loadAll prefers daily.md as the editable primary', () async {
+      nested('20261011', 'reading_list.md').writeAsStringSync('- [ ] list');
+      nested('20261011', 'a_note.md').writeAsStringSync('- [ ] a');
+
+      final files = await repository.loadAll();
+
+      final file = files.single;
+      // No daily.md: the first note by name is the editable primary, the
+      // rest stay merged notes.
+      expect(file.path, 'cal/2026/10/11/a_note.md');
+      expect(file.content, '- [ ] a');
+      expect(file.notes.single.path, 'cal/2026/10/11/reading_list.md');
+      expect(file.mergedContent, '- [ ] a\n- [ ] list');
+    });
+
+    test('loadByDate merges every note in a day directory', () async {
+      nested('20261011', 'daily.md').writeAsStringSync('- @09:00 meeting');
+      nested('20261011', 'reading_list.md').writeAsStringSync('- [ ] buy milk');
+
+      final file = await repository.loadByDate('20261011');
+
+      expect(file?.path, 'cal/2026/10/11/daily.md');
+      expect(file?.content, '- @09:00 meeting');
+      expect(file?.mergedContent, '- @09:00 meeting\n- [ ] buy milk');
+      expect(file?.notes.single.content, '- [ ] buy milk');
+    });
+
+    test('loadIncremental reloads a whole date when any note changes',
+        () async {
+      nested('20261011', 'daily.md').writeAsStringSync('- [ ] mine');
+      nested('20261011', 'reading_list.md').writeAsStringSync('- [ ] list');
+      await repository.loadAll();
+
+      // Only the note changes: the merged view must pick up both.
+      nested('20261011', 'reading_list.md').writeAsStringSync('- [ ] edited');
+
+      final files = await repository.loadIncremental();
+
+      expect(files.single.date, '20261011');
+      expect(files.single.content, '- [ ] mine');
+      expect(files.single.mergedContent, '- [ ] mine\n- [ ] edited');
+    });
+
+    test('save keeps the additional notes in the cached day', () async {
+      nested('20261011', 'daily.md').writeAsStringSync('- [ ] mine');
+      nested('20261011', 'reading_list.md').writeAsStringSync('- [ ] list');
+
+      final loaded = await repository.loadByDate('20261011');
+      await repository.save(DailyFile(
+        path: loaded!.path,
+        date: loaded.date,
+        content: '- [x] mine',
+        notes: loaded.notes,
+      ));
+
+      // The primary file is edited; the note file is left untouched.
+      expect(nested('20261011', 'daily.md').readAsStringSync(), '- [x] mine');
+      expect(nested('20261011', 'reading_list.md').readAsStringSync(),
+          '- [ ] list');
+      expect(repository.getByDate('20261011')?.mergedContent,
+          '- [x] mine\n- [ ] list');
     });
 
     test('loadAll ignores conflict copies under a day directory', () async {

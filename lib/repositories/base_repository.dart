@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart';
 import 'package:planetxt/models/expected_content.dart';
 import 'package:planetxt/services/storage_service.dart';
 import 'package:planetxt/utils/conflict_files.dart';
@@ -208,6 +209,18 @@ abstract class BaseRepository<T> {
   /// startup fast path ([restoreFromDiskCache]) paints from this file, so a
   /// process kill before the next full scan must not lose the latest saves.
   Future<void> persistCache() => _persistCache();
+
+  // Protected hooks for subclasses that override loadAll/loadIncremental and
+  // still want the shared disk-cache/conflict bookkeeping.
+
+  /// Restore the in-memory cache from the on-disk JSON cache (see
+  /// [_restoreCache]).
+  @protected
+  Future<void> restoreCache() => _restoreCache();
+
+  /// Record the conflict copies found by [entries] (see [_scanConflicts]).
+  @protected
+  void scanConflicts(List<StoreEntry> entries) => _scanConflicts(entries);
 
   int get cacheSize => cache.length;
 

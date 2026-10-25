@@ -52,7 +52,7 @@ List<SearchHit> searchAll(
 
   final days = <SearchHit>[];
   for (final daily in dailies) {
-    final lines = matchingLines(daily.content);
+    final lines = matchingLines(daily.mergedContent);
     if (lines.isNotEmpty) days.add(SearchHit.day(daily.date, lines));
   }
   days.sort((a, b) => b.date!.compareTo(a.date!));

@@ -100,12 +100,12 @@ class DailyFileProvider extends ChangeNotifier {
 
   _ParsedDaily? _getParsed(String date) {
     final file = _byDate[date];
-    if (file == null || file.content.isEmpty) return null;
-    final hash = file.content.hashCode;
+    if (file == null || file.mergedContent.isEmpty) return null;
+    final hash = file.mergedContent.hashCode;
     final cached = _parseCache[date];
     if (cached != null && cached.contentHash == hash) return cached;
-    final tasks = MarkdownParser.parseTasks(file.content);
-    final events = MarkdownParser.parseEvents(date, file.content)
+    final tasks = MarkdownParser.parseTasks(file.mergedContent);
+    final events = MarkdownParser.parseEvents(date, file.mergedContent)
       ..sort((a, b) => a.time.compareTo(b.time));
     final parsed = _ParsedDaily(hash, tasks, events);
     _parseCache[date] = parsed;
@@ -119,7 +119,10 @@ class DailyFileProvider extends ChangeNotifier {
         final fromDisk = await _dailyRepository.loadByDate(date);
         final existing = _byDate[date];
         if (fromDisk != null) {
-          if (existing == null || existing.content != fromDisk.content) {
+          // Compare the merged view: an edit to an additional note changes
+          // mergedContent even when the primary file's content is unchanged.
+          if (existing == null ||
+              existing.mergedContent != fromDisk.mergedContent) {
             Log.i(
                 '📅 DailyFileProvider: External change detected for $date, refreshing');
             _upsertFile(fromDisk);
@@ -323,8 +326,11 @@ class DailyFileProvider extends ChangeNotifier {
       {ExpectedContent? expected}) async {
     try {
       Log.d('📅 DailyFileProvider: Saving daily file for $date');
-      final dailyFile =
-          await _dailyRepository.create(date, content, expected: expected);
+      // Keep the day's additional notes in the cached file so the merged
+      // view (and reminders) still cover every note of the day.
+      final existing = _byDate[date];
+      final dailyFile = await _dailyRepository.create(date, content,
+          notes: existing?.notes ?? const [], expected: expected);
 
       _upsertFile(dailyFile);
 
@@ -336,7 +342,7 @@ class DailyFileProvider extends ChangeNotifier {
       _postSaveTimers[date]?.cancel();
       _postSaveTimers[date] = Timer(_postSaveDebounce, () {
         _postSaveTimers.remove(date);
-        unawaited(_scheduleEventNotifications(date, content));
+        unawaited(_scheduleEventNotifications(date, dailyFile.mergedContent));
         unawaited(_updateWidget());
         // Flush the disk cache: the startup fast path restores from it, and
         // on Android the process is often killed before the next full scan.
@@ -399,11 +405,62 @@ class DailyFileProvider extends ChangeNotifier {
     }
   }
 
-  /// Check ([done]) or uncheck [task] of [date], in the file as it is on
-  /// disk.
-  Future<void> setTodoDone(String date, TaskItem task, bool done) =>
-      updateDailyFile(
-          date, (content) => DailyContentHelper.setTodoDone(content, task, done));
+  /// Map a merged-content line index to the note (primary or additional)
+  /// that owns it and the line index within that note. `null` when [line] is
+  /// not inside any part.
+  ///
+  /// mergedContent joins the parts with `'\n'`; the number of lines of
+  /// `parts[0..i].join('\n')` is exactly the sum of each part's own line
+  /// count (a trailing newline is a final empty line and absorbs the join),
+  /// so the parts' line spans tile the merged view in order.
+  ({String path, String content, int localLine})? _locateLine(
+      DailyFile file, int line) {
+    final paths = [file.path, ...file.notes.map((n) => n.path)];
+    final parts = [file.content, ...file.notes.map((n) => n.content)];
+    var mergedLine = 0;
+    for (var i = 0; i < parts.length; i++) {
+      final partLines = MarkdownParser.splitLines(parts[i]);
+      if (line >= mergedLine && line < mergedLine + partLines.length) {
+        return (path: paths[i], content: parts[i], localLine: line - mergedLine);
+      }
+      mergedLine += partLines.length;
+    }
+    return null;
+  }
+
+  /// Check ([done]) or uncheck [task] of [date], in the note that owns it
+  /// as it is on disk. A todo parsed from an additional note is written back
+  /// to that note, so the merged view and the file both update.
+  Future<void> setTodoDone(String date, TaskItem task, bool done) {
+    final next = (_updateQueues[date] ?? Future<void>.value())
+        .catchError((Object _) {})
+        .then((_) => _setTodoDone(date, task, done));
+    _updateQueues[date] = next;
+    next.then((_) {}, onError: (Object _) {}).whenComplete(() {
+      if (identical(_updateQueues[date], next)) _updateQueues.remove(date);
+    });
+    return next;
+  }
+
+  Future<void> _setTodoDone(String date, TaskItem task, bool done) async {
+    // Re-read the day so we operate on the latest notes (taps are queued).
+    final current = await getDailyFile(date);
+    if (current == null) return;
+    final loc = _locateLine(current, task.line);
+    if (loc == null) return;
+    final localTask = TaskItem(
+      text: task.text,
+      isCompleted: task.isCompleted,
+      line: loc.localLine,
+    );
+    final edited = DailyContentHelper.setTodoDone(loc.content, localTask, done);
+    if (edited == loc.content) return;
+    await _dailyRepository.savePart(date, loc.path, edited,
+        expected: ExpectedContent(loc.content));
+    final fromDisk = await _dailyRepository.loadByDate(date);
+    if (fromDisk != null) _upsertFile(fromDisk);
+    notifyListeners();
+  }
 
   /// The latest day before [date] that has undone todos, with them.
   ({String date, List<TaskItem> todos})? latestUndoneBefore(String date) {
@@ -494,7 +551,8 @@ class DailyFileProvider extends ChangeNotifier {
     final fromDisk = await _dailyRepository.loadByDate(date);
     if (fromDisk != null) {
       final existing = _byDate[date];
-      final changed = existing == null || existing.content != fromDisk.content;
+      final changed =
+          existing == null || existing.mergedContent != fromDisk.mergedContent;
       _upsertFile(fromDisk);
       if (changed) {
         Log.d('📅 DailyFileProvider: Loaded daily file for $date from disk');
@@ -552,7 +610,7 @@ class DailyFileProvider extends ChangeNotifier {
     if (parsed.freeText == null || parsed.logHeaderRegex != logHeaderRegex) {
       parsed
         ..logHeaderRegex = logHeaderRegex
-        ..freeText = MarkdownParser.parseFreeText(_byDate[date]!.content,
+        ..freeText = MarkdownParser.parseFreeText(_byDate[date]!.mergedContent,
             logHeaderRegex: logHeaderRegex);
     }
     return parsed.freeText;
