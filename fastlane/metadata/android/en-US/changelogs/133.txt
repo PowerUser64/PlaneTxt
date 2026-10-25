@@ -1,0 +1,1 @@
+- Sync conflicts can now be resolved in the app: both versions of a file changed in two places at once are compared line by line, and you keep the current one, the copy, or both
